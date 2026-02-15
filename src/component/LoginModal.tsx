@@ -155,35 +155,37 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
                 </button>
               </div>
 
-              <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar pr-1 bg-[#f0e6d2] p-3 rounded-xl border-4 border-[#b89b72] shadow-inner relative">
-                <div className="absolute inset-0 opacity-20 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cream-paper.png')]"></div>
-                {results.map((p, i) => (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      setSelectedPlayer(p);
-                      setStep('verify');
-                    }}
-                    className="w-full p-3 bg-[#e6d5b8] hover:bg-[#dfc9a3] border-2 border-[#cbbda2] rounded-xl flex items-center justify-between group transition-all relative z-10 shadow-sm"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-[#fcf5e5] rounded-lg border border-[#cbbda2] group-hover:bg-orange-600/10 transition-colors">
-                        <User size={18} className="text-[#5c4a35] group-hover:text-orange-700" />
+              {(results.length > 0 || syncing || (query && !loading && results.length === 0)) && (
+                <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar pr-1 bg-[#f0e6d2] p-3 rounded-xl border-4 border-[#b89b72] shadow-inner relative">
+                  <div className="absolute inset-0 opacity-20 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cream-paper.png')]"></div>
+                  {results.map((p, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        setSelectedPlayer(p);
+                        setStep('verify');
+                      }}
+                      className="w-full p-3 bg-[#e6d5b8] hover:bg-[#dfc9a3] border-2 border-[#cbbda2] rounded-xl flex items-center justify-between group transition-all relative z-10 shadow-sm"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-[#fcf5e5] rounded-lg border border-[#cbbda2] group-hover:bg-orange-600/10 transition-colors">
+                          <User size={18} className="text-[#5c4a35] group-hover:text-orange-700" />
+                        </div>
+                        <div className="text-left">
+                          <div className="font-bold text-[#4a3b2a] leading-tight">{p.name}</div>
+                          <div className="text-[10px] text-[#998877] font-mono">{p.tag}</div>
+                        </div>
                       </div>
-                      <div className="text-left">
-                        <div className="font-bold text-[#4a3b2a] leading-tight">{p.name}</div>
-                        <div className="text-[10px] text-[#998877] font-mono">{p.tag}</div>
+                      <div className="flex items-center gap-2">
+                         {p.role && <span className="text-[9px] text-[#998877] uppercase font-black">{p.role}</span>}
+                         {p.th && <span className="bg-[#4a3b2a] text-orange-300 text-[10px] font-bold px-2 py-0.5 rounded border border-[#333]">TH{p.th}</span>}
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                       {p.role && <span className="text-[9px] text-[#998877] uppercase font-black">{p.role}</span>}
-                       {p.th && <span className="bg-[#4a3b2a] text-orange-300 text-[10px] font-bold px-2 py-0.5 rounded border border-[#333]">TH{p.th}</span>}
-                    </div>
-                  </button>
-                ))}
-                {results.length === 0 && !loading && !syncing && query && <p className="text-center text-[#998877] text-xs font-bold py-4 uppercase">Không tìm thấy ai!</p>}
-                {syncing && <p className="text-center text-green-700 text-[10px] font-black py-4 animate-pulse uppercase tracking-tighter">ĐANG ĐỒNG BỘ...</p>}
-              </div>
+                    </button>
+                  ))}
+                  {results.length === 0 && !loading && !syncing && query && <p className="text-center text-[#998877] text-xs font-bold py-4 uppercase">Không tìm thấy ai!</p>}
+                  {syncing && <p className="text-center text-green-700 text-[10px] font-black py-4 animate-pulse uppercase tracking-tighter">ĐANG ĐỒNG BỘ...</p>}
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-6">
@@ -198,9 +200,22 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-black text-orange-200/60 uppercase tracking-widest flex items-center gap-2">
-                  <Key size={14} className="text-yellow-500" /> API TOKEN CỦA BẠN
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-orange-200/60 uppercase tracking-widest flex items-center gap-2">
+                    <Key size={14} className="text-yellow-500" /> API TOKEN CỦA BẠN
+                  </label>
+                  <a 
+                    href="https://www.youtube.com/watch?v=b-ygM4Remwc" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-2 py-1 bg-red-600 hover:bg-red-500 text-white text-[10px] font-black rounded-lg border-b-2 border-red-800 active:border-b-0 active:translate-y-0.5 transition-all shadow-sm uppercase"
+                  >
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.016 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.016 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                    </svg>
+                    Hướng dẫn
+                  </a>
+                </div>
                 <input
                   autoFocus
                   type="password"
