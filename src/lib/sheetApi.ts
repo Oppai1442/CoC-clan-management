@@ -73,6 +73,7 @@ export async function fetchEndpoint<T = any>(
     sortBy?: string;
     sortDir?: "asc" | "desc";
     filters?: Record<string, string>;
+    authTag?: string;
   } = {},
   signal?: AbortSignal
 ) {
@@ -86,6 +87,7 @@ export async function fetchEndpoint<T = any>(
     sortBy: opts.sortBy,
     sortDir: opts.sortDir,
     filters: opts.filters ? JSON.stringify(opts.filters) : undefined,
+    authTag: opts.authTag,
   });
 
   return fetchJson<ApiCommonResp<T>>(url, signal);
@@ -137,3 +139,13 @@ export async function addPlayerNote(baseUrl: string, opts: {
   return fetchJson<{ ok: true }>(url);
 }
 
+
+export async function deletePlayerNote(baseUrl: string, opts: {
+  targetTag: string;
+  time: string;
+  authTag: string;
+  type: "member" | "admin";
+}) {
+  const url = buildUrl(baseUrl, { path: "/api/v1/player/delete-note", ...opts });
+  return fetchJson<{ ok: true }>(url);
+}

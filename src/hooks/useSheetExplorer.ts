@@ -13,6 +13,7 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
   sortBy?: string;
   sortDir?: "asc" | "desc";
   filters?: Record<string, string>;
+  authTag?: string;
 } = {}) {
   // Static list
   const [sheets] = useState<SheetMeta[]>(AVAILABLE_ENDPOINTS.map(e => ({ ...e })));
@@ -33,9 +34,12 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
   const [error, setError] = useState<string | null>(null);
   const [clanNames, setClanNames] = useState<Record<string, string>>({});
   const triedTagsRef = useRef<Set<string>>(new Set());
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const cursorRef = useRef(cursor);
   useEffect(() => { cursorRef.current = cursor; }, [cursor]);
+
+  const refresh = () => setRefreshKey(prev => prev + 1);
 
   // Resolve clans effect
   useEffect(() => {
@@ -124,6 +128,7 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
             sortBy: options.sortBy,
             sortDir: options.sortDir,
             filters: options.filters,
+            authTag: options.authTag,
             limit: 500
           },
           ctrl.signal
@@ -181,12 +186,22 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
       ctrl.abort();
       if (timer) window.clearTimeout(timer);
     };
-  }, [baseUrl, selectedPath, pollMs, selectedMeta, options.q, options.sortBy, options.sortDir, options.filters]);
+  }, [baseUrl, selectedPath, pollMs, selectedMeta, options.q, options.sortBy, options.sortDir, options.filters, options.authTag, refreshKey]);
 
   const resetCursor = () => {
     if (!selectedPath) return;
     setCursor(0);
     setRows([]);
+  };
+
+  const mutateRow = (idValue: string, field: string, newValue: any) => {
+    setRows(prev => prev.map(row => {
+      const rowId = row.playerTag || row.tag || row.attackerTag;
+      if (rowId === idValue) {
+        return { ...row, [field]: newValue };
+      }
+      return row;
+    }));
   };
 
   return {
@@ -212,5 +227,7 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
     error,
     clanNames,
     resetCursor,
+    refresh,
+    mutateRow
   };
 }

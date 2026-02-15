@@ -50,16 +50,17 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const [warHistory, setWarHistory] = useState<any[]>([]);
   const [activeSheetName, setActiveSheetName] = useState("");
 
-  const [noteTarget, setNoteTarget] = useState<{ tag: string; name: string } | null>(null);
+  const [noteTarget, setNoteTarget] = useState<{ tag: string; name: string; memberNote?: string; adminNote?: string } | null>(null);
 
   const {
     sheets, selected, selectedI18nKey, setSelected: hookSetSelected,
     strategy, headers, rows, lastRow,
-    loading, isInitialLoading, sheetsLoading, error, clanNames, resetCursor
+    loading, isInitialLoading, sheetsLoading, error, clanNames, resetCursor, refresh, mutateRow
   } = useSheetExplorer(baseUrl, pollMs, {
     q,
     sortBy: sortConfig?.key,
     sortDir: sortConfig?.direction,
+    authTag: user?.tag,
     filters: useMemo(() => {
       const f = { ...filters };
       if (activeSheetName === "War Members" || activeSheetName === "War Attacks") {
@@ -106,16 +107,14 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     if ((columnKey === 'adminNote' || columnKey === 'memberNote') && strVal.startsWith('[')) {
       try {
         const notes = JSON.parse(strVal);
-        if (Array.isArray(notes)) {
+        if (Array.isArray(notes) && notes.length > 0) {
+          const latest = notes[notes.length - 1];
           return (
-            <div className="flex flex-col gap-1 max-w-md min-w-[120px]">
-              {notes.slice(-2).map((n: any, i: number) => (
-                <div key={i} className="text-[10px] bg-black/5 p-1 rounded border border-black/5">
-                  <span className="font-bold text-orange-800 break-words">{n.message}</span>
-                  <span className="text-[8px] opacity-50 block">{format(new Date(n.time), "dd/MM HH:mm")}</span>
-                </div>
-              ))}
-              {notes.length > 2 && <span className="text-[8px] italic opacity-40">+{notes.length - 2} more...</span>}
+            <div className="flex flex-col gap-0.5 min-w-[120px]">
+              <div className="text-[10px] bg-black/5 p-1 rounded border border-black/5 leading-tight">
+                <span className="font-bold text-orange-800 break-words line-clamp-2">{latest.message}</span>
+                <span className="text-[8px] opacity-50 block mt-0.5">{format(new Date(latest.time), "dd/MM HH:mm")}</span>
+              </div>
             </div>
           );
         }
@@ -468,12 +467,12 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                   {shown.map((r, idx) => {
                     const tag = r.playerTag || r.tag || r.attackerTag;
                     const name = r.playerName || r.name || r.attackerName;
-                    const canNote = isAuthenticated && tag && name && activeSheetName === "Clan Members";
+                    const canNote = isAuthenticated && tag && name && activeSheetName === "Quản lý Thành viên";
 
                     return (
                       <tr 
                         key={(r.eventId || r.attackId || r.warLogId || r.warKey || r.raidId || idx) as any} 
-                        onClick={() => canNote && setNoteTarget({ tag, name })}
+                        onClick={() => canNote && setNoteTarget({ tag, name, memberNote: r.memberNote, adminNote: r.adminNote })}
                         className={clsx(
                           "transition-colors group odd:bg-[#f0e6d2] even:bg-[#ebe0ca]",
                           canNote ? "hover:bg-orange-100 cursor-pointer" : "hover:bg-[#fff9ea]"
@@ -542,9 +541,11 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           user={user}
           target={noteTarget}
           onClose={() => setNoteTarget(null)}
-          onSuccess={() => {
-            setNoteTarget(null);
-            // Optional: force refresh current sheet or show toast
+          onSuccess={(newJson, type) => {
+            const field = type === 'admin' ? 'adminNote' : 'memberNote';
+            mutateRow(noteTarget.tag, field, newJson);
+            // Cập nhật target cục bộ để UI modal cũng đổi theo
+            setNoteTarget(prev => prev ? { ...prev, [field]: newJson } : null);
           }}
         />
       )}
