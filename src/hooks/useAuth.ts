@@ -5,6 +5,7 @@ export type UserProfile = {
   name: string;
   role: string;
   th: string;
+  token: string;
   loginAt: number; // Timestamp
 };
 

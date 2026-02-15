@@ -24,6 +24,7 @@ const resources = {
       "language.select": "Language",
       
       // Endpoint Names
+      "endpoint.clan-members": "Clan Members",
       "endpoint.member-events": "Member Events",
       "endpoint.war-history": "War History",
       "endpoint.war-members": "War Members",
@@ -64,6 +65,9 @@ const resources = {
       "field.order": "Order",
       "field.duration": "Duration",
       "field.lastSeenTs": "Last Seen",
+      "field.adminNote": "Admin Note",
+      "field.memberNote": "Member Note",
+      "field.lastUpdated": "Last Updated",
       
       // Stats & Recommend Fields
       "field.cw_wars_joined": "CW Joined",
@@ -113,6 +117,7 @@ const resources = {
       "language.select": "Ngôn ngữ",
 
       // Endpoint Names
+      "endpoint.clan-members": "Quản lý Thành viên",
       "endpoint.member-events": "Sự kiện Thành viên",
       "endpoint.war-history": "Lịch sử War",
       "endpoint.war-members": "Thành viên War",
@@ -153,6 +158,9 @@ const resources = {
       "field.order": "Thứ tự",
       "field.duration": "Thời lượng",
       "field.lastSeenTs": "Gặp lần cuối",
+      "field.adminNote": "Ghi chú Admin",
+      "field.memberNote": "Ghi chú Member",
+      "field.lastUpdated": "Cập nhật lúc",
 
       // Stats & Recommend Fields
       "field.cw_wars_joined": "War tham gia",

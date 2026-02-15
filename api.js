@@ -58,11 +58,15 @@ function doGet(e) {
     if (route === "/api/v1/raid/seasons") return handleRaidSeasons_(req);
     if (route === "/api/v1/raid/members") return handleRaidMembers_(req);
 
+    // Clan Members Management
+    if (route === "/api/v1/clan/members") return handleClanMembers_(req);
+
     // Player Auth
     if (route === "/api/v1/player/search") return handlePlayerSearch_(req);
     if (route === "/api/v1/player/verify") return handlePlayerVerify_(req);
     if (route === "/api/v1/player/list-current") return handlePlayerListCurrent_(req);
     if (route === "/api/v1/clan/sync-live") return handleClanSyncLive_(req);
+    if (route === "/api/v1/player/add-note") return handlePlayerAddNote_(req);
 
     // Unknown
     return jsonOut_({
@@ -74,10 +78,12 @@ function doGet(e) {
         "/api/v1/war/history",
         "/api/v1/war/members",
         "/api/v1/war/attacks",
+        "/api/v1/clan/members",
         "/api/v1/player/search",
         "/api/v1/player/verify",
         "/api/v1/player/list-current",
-        "/api/v1/clan/sync-live"
+        "/api/v1/clan/sync-live",
+        "/api/v1/player/add-note"
       ]
     });
   } catch (err) {
@@ -227,10 +233,10 @@ function handleLatestWarKeyParam_(req) {
 }
 
 function getLatestWarKey_() {
-  const raw = readSheetObjects_("WarHistory", { 
-    params: { limit: 1, sortBy: "endTime", sortDir: "desc" } 
-  }, { 
-    strategy: "replace" 
+  const raw = readSheetObjects_("WarHistory", {
+    params: { limit: 1, sortBy: "endTime", sortDir: "desc" }
+  }, {
+    strategy: "replace"
   });
   return (raw.rows && raw.rows.length > 0) ? raw.rows[0].warKey : null;
 }
@@ -306,8 +312,8 @@ function handleWarRecommend_(req) {
   const type = String(req.params.type || "cw").toLowerCase(); // cw|cwl|overall
 
   const alpha = clampInt_(req.params.alpha, 2, 0, 100);
-  const beta  = clampInt_(req.params.beta,  2, 0, 100);
-  const k     = clampInt_(req.params.k,    10, 0, 1000);
+  const beta = clampInt_(req.params.beta, 2, 0, 100);
+  const k = clampInt_(req.params.k, 10, 0, 1000);
   const kWars = clampInt_(req.params.kWars, 5, 0, 1000);
 
   const includeNoHistory = String(req.params.includeNoHistory || "false").toLowerCase() === "true";
@@ -443,15 +449,15 @@ function handleWarRecommend_(req) {
 
     pool: (type === "cwl")
       ? {
-          mode: "locked",
-          seasonKey: String(req.params.seasonKey || "").trim() || (lockMeta ? "AUTO" : ""),
-          lockedAt: lockMeta ? lockMeta.lockedAt : "",
-          poolSize: poolTags.length
-        }
+        mode: "locked",
+        seasonKey: String(req.params.seasonKey || "").trim() || (lockMeta ? "AUTO" : ""),
+        lockedAt: lockMeta ? lockMeta.lockedAt : "",
+        poolSize: poolTags.length
+      }
       : {
-          mode: "current",
-          poolSize: poolTags.length
-        },
+        mode: "current",
+        poolSize: poolTags.length
+      },
 
     excluded: Array.from(excludeSet),
     meta: {
@@ -897,7 +903,7 @@ function readSheetObjects_(sheetName, req, opt) {
 function shapeMemberEvent_(r) {
   const type = String(r.type || "").toUpperCase();
   const playerName = String(r.playerName || "").trim();
-  
+
   let oldName = "", oldRole = "", newName = "", newRole = "";
 
   // 1. Initial assignment based on type and playerName column
@@ -1053,7 +1059,7 @@ function compareSmart_(va, vb, dir) {
   const sa = String(va ?? "").toLowerCase();
   const sb = String(vb ?? "").toLowerCase();
   if (sa < sb) return -1 * sign;
-  if (sa > sb) return  1 * sign;
+  if (sa > sb) return 1 * sign;
   return 0;
 }
 
@@ -1158,7 +1164,7 @@ function getActiveCwlSeasonKey_() {
   if (active) return active.seasonKey;
 
   // fallback latest by season (string compare ok if season like "2026-02")
-  norm.sort((a,b) => (a.season < b.season ? 1 : (a.season > b.season ? -1 : 0)));
+  norm.sort((a, b) => (a.season < b.season ? 1 : (a.season > b.season ? -1 : 0)));
   return norm[0].seasonKey;
 }
 
@@ -1208,18 +1214,18 @@ function handlePlayerSearch_(req) {
 
   const normalizedQ = normalize(q);
   const members = readAllSheetObjects_("MembersCurrent");
-  
+
   const filtered = members.filter(m => {
     const name = String(m.name || "");
     const tag = String(m.playerTag || "").toLowerCase();
-    
+
     // 1. Khớp tag chính xác
     if (tag === q || tag === "#" + q) return true;
-    
+
     // 2. Khớp tên (sau khi đã dọn dẹp ký tự đặc biệt)
     // Nếu q rỗng sau khi normalize (vd toàn icon) thì fallback về includes gốc
     if (!normalizedQ && q) {
-       return name.toLowerCase().includes(q.toLowerCase());
+      return name.toLowerCase().includes(q.toLowerCase());
     }
     return normalize(name).includes(normalizedQ);
   }).map(m => ({
@@ -1239,13 +1245,13 @@ function handlePlayerVerify_(req) {
 
   const cfg = getCfg_();
   const tagEnc = encodeURIComponent(tag.startsWith("#") ? tag : "#" + tag);
-  
+
   const url = cfg.baseUrl.replace(/\/$/, "") + "/players/" + tagEnc + "/verifytoken";
-  
+
   try {
     const resp = UrlFetchApp.fetch(url, {
       method: "post",
-      headers: { 
+      headers: {
         "Authorization": "Bearer " + cfg.token,
         "Content-Type": "application/json",
         "Accept": "application/json"
@@ -1256,7 +1262,7 @@ function handlePlayerVerify_(req) {
 
     const code = resp.getResponseCode();
     const result = JSON.parse(resp.getContentText());
-    
+
     if (code >= 200 && code < 300) {
       return jsonOut_({ ok: true, status: result.status });
     } else {
@@ -1286,9 +1292,112 @@ function handlePlayerListCurrent_(req) {
 function handleClanSyncLive_(req) {
   try {
     const cfg = getCfg_();
-    syncClanAndMembers_(cfg); 
+    syncClanAndMembers_(cfg);
     return jsonOut_({ ok: true, message: "Sync complete" });
   } catch (e) {
     return jsonOut_({ ok: false, error: String(e) });
   }
+}
+
+/* =========================
+ * Notes Handler
+ * ========================= */
+
+function handlePlayerAddNote_(req) {
+  const targetTag = String(req.params.targetTag || "").trim();
+  const message = String(req.params.message || "").trim();
+  const authTag = String(req.params.authTag || "").trim();
+  const authName = String(req.params.authName || "").trim();
+  const noteType = String(req.params.type || "member"); // member | admin
+
+  if (!targetTag || !message || !authTag) {
+    return jsonOut_({ ok: false, error: "Missing params" });
+  }
+
+  // 1. Load Members to check role and target
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("MembersCurrent");
+  if (!sh) return jsonOut_({ ok: false, error: "Sheet not found" });
+
+  const headers = SHEETS.MembersCurrent.headers;
+  const data = sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), headers.length).getValues();
+
+  const tagIdx = headers.indexOf("playerTag");
+  const roleIdx = headers.indexOf("role");
+  const adminNoteIdx = headers.indexOf("adminNote");
+  const memberNoteIdx = headers.indexOf("memberNote");
+
+  // Find auth user row to verify role
+  const authUser = data.find(r => String(r[tagIdx]) === authTag);
+  if (!authUser) return jsonOut_({ ok: false, error: "Authenticated user not found in clan" });
+
+  const authRole = String(authUser[roleIdx]);
+  const isManagement = (authRole === "coLeader" || authRole === "leader");
+
+  // Find target row
+  const targetRowIdx = data.findIndex(r => String(r[tagIdx]) === targetTag);
+  if (targetRowIdx === -1) return jsonOut_({ ok: false, error: "Target player not found" });
+
+  const targetRow = data[targetRowIdx];
+  const now = new Date().toISOString();
+
+  if (noteType === "admin") {
+    if (!isManagement) return jsonOut_({ ok: false, error: "Permission denied for admin note" });
+
+    let notes = [];
+    try {
+      const raw = targetRow[adminNoteIdx];
+      notes = raw ? JSON.parse(raw) : [];
+    } catch (e) { notes = []; }
+    if (!Array.isArray(notes)) notes = [];
+
+    notes.push({ message, time: now, user: [authTag, authName] });
+    sh.getRange(targetRowIdx + 2, adminNoteIdx + 1).setValue(JSON.stringify(notes));
+  } else {
+    // Member note: only self or management
+    if (authTag !== targetTag && !isManagement) return jsonOut_({ ok: false, error: "Permission denied" });
+
+    let notes = [];
+    try {
+      const raw = targetRow[memberNoteIdx];
+      notes = raw ? JSON.parse(raw) : [];
+    } catch (e) { notes = []; }
+    if (!Array.isArray(notes)) notes = [];
+
+    notes.push({ message, time: now });
+    sh.getRange(targetRowIdx + 2, memberNoteIdx + 1).setValue(JSON.stringify(notes));
+  }
+
+  return jsonOut_({ ok: true });
+}
+
+/* =========================
+ * Clan Members Handler
+ * ========================= */
+
+function handleClanMembers_(req) {
+  const raw = readSheetObjects_("MembersCurrent", req, {
+    strategy: "replace",
+    defaultSortBy: "townHallLevel",
+    defaultSortDir: "desc"
+  });
+
+  const rows = raw.rows.map(r => ({
+    playerTag: r.playerTag,
+    name: r.name,
+    role: r.role,
+    townHallLevel: r.townHallLevel,
+    warStars: r.warStars,
+    memberNote: r.memberNote,
+    adminNote: r.adminNote,
+    lastUpdated: r.ts
+  }));
+
+  return jsonOut_({
+    ok: true,
+    ts: new Date().toISOString(),
+    resource: "clan-members",
+    totalAfterFilter: raw.totalAfterFilter,
+    rows: rows
+  });
 }

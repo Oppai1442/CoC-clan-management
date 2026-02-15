@@ -46,6 +46,7 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 // --- API Methods ---
 
 export const AVAILABLE_ENDPOINTS = [
+  { name: "Clan Members", i18nKey: "endpoint.clan-members", path: "/api/v1/clan/members", strategy: "replace" },
   { name: "Member Events", i18nKey: "endpoint.member-events", path: "/api/v1/member-events", strategy: "append" },
   { name: "War History", i18nKey: "endpoint.war-history", path: "/api/v1/war/history", strategy: "append" },
   { name: "War Members", i18nKey: "endpoint.war-members", path: "/api/v1/war/members", strategy: "append" },
@@ -124,3 +125,15 @@ export async function forceSyncClan(baseUrl: string) {
   const url = buildUrl(baseUrl, { path: "/api/v1/clan/sync-live" });
   return fetchJson<{ ok: true }>(url);
 }
+
+export async function addPlayerNote(baseUrl: string, opts: {
+  targetTag: string;
+  message: string;
+  authTag: string;
+  authName: string;
+  type: "member" | "admin";
+}) {
+  const url = buildUrl(baseUrl, { path: "/api/v1/player/add-note", ...opts });
+  return fetchJson<{ ok: true }>(url);
+}
+

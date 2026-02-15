@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useSheetExplorer } from "../hooks/useSheetExplorer";
 import { useAuth } from "../hooks/useAuth";
 import { LoginModal } from "./LoginModal";
+import { AddNoteModal } from "./AddNoteModal";
 import { fetchEndpoint } from "../lib/sheetApi";
 import { 
   Search, 
@@ -21,7 +22,9 @@ import {
   User,
   LogOut,
   LogIn,
-  History
+  History,
+  StickyNote,
+  Menu
 } from "lucide-react";
 import clsx from "clsx";
 import { useTranslation } from 'react-i18next';
@@ -36,6 +39,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const { t, i18n } = useTranslation();
   const { user, login, logout, isAuthenticated } = useAuth();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   const [q, setQ] = useState("");
   const [maxShow, setMaxShow] = useState(500);
@@ -45,6 +49,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const [selectedWarKey, setSelectedWarKey] = useState("latest");
   const [warHistory, setWarHistory] = useState<any[]>([]);
   const [activeSheetName, setActiveSheetName] = useState("");
+
+  const [noteTarget, setNoteTarget] = useState<{ tag: string; name: string } | null>(null);
 
   const {
     sheets, selected, selectedI18nKey, setSelected: hookSetSelected,
@@ -71,6 +77,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const setSelected = (name: string) => {
     setActiveSheetName(name);
     hookSetSelected(name);
+    // Close sidebar on mobile after selection
+    setIsSidebarOpen(false);
   };
 
   // Fetch War History for the dropdown
@@ -94,11 +102,29 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
       return name ? `${name} (${strVal})` : strVal;
     }
 
-    // 2. Tự động nhận diện ISO 8601 UTC (kết thúc bằng Z) và chuyển sang giờ địa phương
+    // 2. Note formatting (JSON arrays)
+    if ((columnKey === 'adminNote' || columnKey === 'memberNote') && strVal.startsWith('[')) {
+      try {
+        const notes = JSON.parse(strVal);
+        if (Array.isArray(notes)) {
+          return (
+            <div className="flex flex-col gap-1 max-w-md min-w-[120px]">
+              {notes.slice(-2).map((n: any, i: number) => (
+                <div key={i} className="text-[10px] bg-black/5 p-1 rounded border border-black/5">
+                  <span className="font-bold text-orange-800 break-words">{n.message}</span>
+                  <span className="text-[8px] opacity-50 block">{format(new Date(n.time), "dd/MM HH:mm")}</span>
+                </div>
+              ))}
+              {notes.length > 2 && <span className="text-[8px] italic opacity-40">+{notes.length - 2} more...</span>}
+            </div>
+          );
+        }
+      } catch (e) { /* fallback to string */ }
+    }
+
+    // 3. Tự động nhận diện ISO 8601 UTC (kết thúc bằng Z) và chuyển sang giờ địa phương
     if (typeof val === 'string' && val.endsWith('Z')) {
-      // Nhận diện định dạng cơ bản: 20260213T144521.000Z (thiếu - và :)
       const basicFormat = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\.\d+)?Z$/;
-      // Nhận diện định dạng mở rộng: 2026-02-13T14:45:21.000Z
       const extendedFormat = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 
       let dateStr = val;
@@ -107,7 +133,6 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
       if (extendedFormat.test(val)) {
         isMatch = true;
       } else if (basicFormat.test(val)) {
-        // Tự động thêm dấu - và : để Date() hiểu được trên mọi trình duyệt
         dateStr = val.replace(basicFormat, "$1-$2-$3T$4:$5:$6$7Z");
         isMatch = true;
       }
@@ -118,9 +143,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           if (isValid(date)) {
             return format(date, "dd/MM/yyyy HH:mm:ss");
           }
-        } catch (e) {
-          // ignore
-        }
+        } catch (e) { /* ignore */ }
       }
     }
 
@@ -146,7 +169,6 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     });
   };
 
-  // Local slice for performance, but filters/sorting are already done by server
   const shown = useMemo(() => {
     if (rows.length > maxShow) return rows.slice(rows.length - maxShow);
     return rows;
@@ -156,9 +178,20 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     <div className="flex h-screen w-full bg-[#2a2a2a] text-[#f0f0f0] font-sans overflow-hidden font-bold select-none relative">
       <div className="absolute inset-0 opacity-10 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
 
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className="w-80 flex-shrink-0 bg-[#1e1e1e] border-r-4 border-[#3a3a3a] flex flex-col shadow-2xl z-10 relative">
-        <div className="p-4 bg-[#252525] border-b-4 border-[#111] shadow-lg">
+      <div className={clsx(
+        "w-80 flex-shrink-0 bg-[#1e1e1e] border-r-4 border-[#3a3a3a] flex flex-col shadow-2xl z-50 fixed lg:static inset-y-0 left-0 transition-transform duration-300 ease-in-out lg:translate-x-0",
+        !isSidebarOpen && "-translate-x-full"
+      )}>
+        <div className="p-4 bg-[#252525] border-b-4 border-[#111] shadow-lg flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="bg-orange-600 p-2 rounded-xl border-2 border-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.3)]">
               <Swords size={24} className="text-white drop-shadow-md" />
@@ -170,6 +203,9 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
               <div className="h-1 w-full bg-gradient-to-r from-yellow-600 to-transparent rounded mt-1"></div>
             </div>
           </div>
+          <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 text-[#666] hover:text-white">
+            <X size={24} />
+          </button>
         </div>
         
         <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
@@ -178,8 +214,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
             <div className="flex items-center">
               {sheetsLoading ? (
                 <div className="flex items-center gap-1 px-2 py-1 bg-[#111] rounded border border-[#444] shadow-inner">
-                  <RotateCw size={10} className="animate-spin text-orange-500" />
-                  <span className="text-[10px] text-orange-400 animate-pulse">LOADING</span>
+                  <RotateCw size={10} className="animate-spin text-orange-50" />
+                  <span className="text-[10px] text-orange-400 animate-pulse uppercase">loading</span>
                 </div>
               ) : (
                 <span className="bg-[#333] text-yellow-500 px-2 py-1 rounded border border-[#555] shadow-inner text-xs min-w-[24px] text-center">
@@ -201,12 +237,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
               return (
                 <button
                   key={s.name}
-                  onClick={() => {
-                    setSelected(s.name);
-                    setFilters({});
-                    setSortConfig(null);
-                    setQ("");
-                  }}
+                  onClick={() => setSelected(s.name)}
                   className={clsx(
                     "w-full text-left p-3 rounded-xl transition-all duration-100 flex items-center gap-3 group border-2 relative overflow-hidden",
                     isSelected 
@@ -306,39 +337,47 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           <div className="w-full h-full opacity-5 bg-[radial-gradient(#444_1px,transparent_1px)] [background-size:16px_16px]"></div>
         </div>
 
-        <header className="bg-[#2a2a2a] border-b-4 border-[#151515] px-6 py-4 flex items-center justify-between shadow-2xl z-10 relative">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-2xl font-black text-white flex items-center gap-3" style={{ textShadow: "2px 2px 0 #000" }}>
-              <Shield className="text-gray-500" size={24} />
-              {selectedI18nKey ? t(selectedI18nKey, selected) : t('sheet.noSheetSelected')}
-            </h2>
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide">
-              <span className="bg-[#111] text-[#888] px-2 py-1 rounded border border-[#333]">
-                {t('sheet.strategy')}: <span className="text-blue-400">{strategy}</span>
-              </span>
-              <span className="bg-[#111] text-[#888] px-2 py-1 rounded border border-[#333]">
-                {t('sheet.cursor')}: <span className="text-orange-400">{(lastRow-1>0?lastRow-1:0).toLocaleString()}</span>
-              </span>
+        <header className="bg-[#2a2a2a] border-b-4 border-[#151515] px-4 lg:px-6 py-4 flex items-center justify-between shadow-2xl z-10 relative">
+          <div className="flex items-center gap-3 lg:gap-4">
+            <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="lg:hidden p-2 bg-[#333] rounded-lg border-2 border-[#444] text-yellow-500 hover:bg-[#444] active:scale-95 transition-all"
+            >
+              <Menu size={20} />
+            </button>
+            <div className="flex flex-col gap-0.5 lg:gap-1">
+              <h2 className="text-lg lg:text-2xl font-black text-white flex items-center gap-2 lg:gap-3" style={{ textShadow: "2px 2px 0 #000" }}>
+                <Shield className="text-gray-500 hidden sm:block" size={24} />
+                {selectedI18nKey ? t(selectedI18nKey, selected) : t('sheet.noSheetSelected')}
+              </h2>
+              <div className="flex items-center gap-2 text-[10px] lg:text-xs font-bold uppercase tracking-wide">
+                <span className="bg-[#111] text-[#888] px-1.5 lg:px-2 py-0.5 lg:py-1 rounded border border-[#333]">
+                  <span className="hidden sm:inline">{t('sheet.strategy')}: </span><span className="text-blue-400">{strategy}</span>
+                </span>
+                <span className="bg-[#111] text-[#888] px-1.5 lg:px-2 py-0.5 lg:py-1 rounded border border-[#333]">
+                  <span className="hidden sm:inline">{t('sheet.cursor')}: </span><span className="text-orange-400">{(lastRow-1>0?lastRow-1:0).toLocaleString()}</span>
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 lg:gap-4">
              {strategy === "append" && (
               <button 
                 onClick={resetCursor}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg border-b-4 border-red-800 active:border-b-0 active:translate-y-1 transition-all flex items-center gap-2 shadow-lg text-sm uppercase tracking-wide"
+                className="p-2 lg:px-4 lg:py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg border-b-4 border-red-800 active:border-b-0 active:translate-y-1 transition-all flex items-center gap-2 shadow-lg text-xs lg:text-sm uppercase tracking-wide"
               >
                 <RotateCw size={16} />
-                {t('action.resetCursor')}
+                <span className="hidden lg:inline">{t('action.resetCursor')}</span>
               </button>
             )}
             
-            <div className="flex items-center gap-2 bg-[#1a1a1a] p-1.5 rounded-lg border border-[#444] shadow-inner">
-              <span className="text-[10px] text-[#888] px-2 uppercase font-bold">{t('action.showLast')}</span>
+            <div className="flex items-center gap-2 bg-[#1a1a1a] p-1 lg:p-1.5 rounded-lg border border-[#444] shadow-inner">
+              <span className="hidden lg:inline text-[10px] text-[#888] px-2 uppercase font-bold">{t('action.showLast')}</span>
               <select 
                 value={maxShow} 
                 onChange={e => setMaxShow(parseInt(e.target.value, 10))}
-                className="bg-[#333] text-white text-xs font-bold border border-[#555] rounded py-1 pl-2 pr-4 focus:outline-none focus:border-yellow-500 cursor-pointer"
+                className="bg-[#333] text-white text-[10px] lg:text-xs font-bold border border-[#555] rounded py-0.5 lg:py-1 pl-1 lg:pl-2 pr-2 lg:pr-4 focus:outline-none focus:border-yellow-500 cursor-pointer"
               >
                 <option value={200}>200</option>
                 <option value={500}>500</option>
@@ -349,14 +388,14 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           </div>
         </header>
 
-        <div className="px-6 py-4 bg-[#3d2e1e] border-b border-[#2a2015] flex items-center gap-4 shadow-inner relative z-10">
-          {(selected === "War Members" || selected === "War Attacks") && (
-            <div className="flex items-center gap-2 bg-[#2a1d12] p-1.5 rounded-xl border-2 border-[#4e3b2a] shadow-inner min-w-[280px]">
-              <History size={18} className="ml-2 text-orange-200/40" />
+        <div className="px-4 lg:px-6 py-3 lg:py-4 bg-[#3d2e1e] border-b border-[#2a2015] flex flex-col sm:flex-row items-stretch sm:items-center gap-3 lg:gap-4 shadow-inner relative z-10">
+          {(activeSheetName === "War Members" || activeSheetName === "War Attacks") && (
+            <div className="flex items-center gap-2 bg-[#2a1d12] p-1 lg:p-1.5 rounded-xl border-2 border-[#4e3b2a] shadow-inner min-w-0 lg:min-w-[280px]">
+              <History size={18} className="ml-2 text-orange-200/40 shrink-0" />
               <select 
                 value={selectedWarKey}
                 onChange={e => setSelectedWarKey(e.target.value)}
-                className="bg-transparent text-orange-50 text-sm font-bold focus:outline-none cursor-pointer flex-1 py-1"
+                className="bg-transparent text-orange-50 text-xs lg:text-sm font-bold focus:outline-none cursor-pointer flex-1 py-1 min-w-0"
               >
                 <option value="latest" className="bg-[#2a1d12]">🏆 Trận mới nhất</option>
                 {warHistory.map(w => (
@@ -368,33 +407,33 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
             </div>
           )}
 
-          <div className="relative flex-1 max-w-2xl">
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-200 opacity-60" size={18} />
             <input
               value={q}
               onChange={e => setQ(e.target.value)}
               placeholder={t('search.placeholder')}
-              className="w-full pl-10 pr-4 py-2.5 bg-[#2a1d12] text-orange-50 placeholder-orange-200/30 border-2 border-[#4e3b2a] rounded-xl focus:outline-none focus:border-yellow-500 focus:bg-[#1a110a] transition-all shadow-inner font-medium"
+              className="w-full pl-10 pr-4 py-2 lg:py-2.5 bg-[#2a1d12] text-orange-50 placeholder-orange-200/30 border-2 border-[#4e3b2a] rounded-xl focus:outline-none focus:border-yellow-500 focus:bg-[#1a110a] transition-all shadow-inner font-medium text-sm"
             />
           </div>
-          <div className="text-xs font-bold text-orange-200/60 uppercase">
-            {t('status.showing')} <span className="text-yellow-400 text-sm">{shown.length}</span> {t('status.rows')}
+          <div className="text-[10px] lg:text-xs font-bold text-orange-200/60 uppercase whitespace-nowrap self-end sm:self-center">
+            {t('status.showing')} <span className="text-yellow-400 text-xs lg:text-sm">{shown.length}</span> {t('status.rows')}
           </div>
         </div>
 
         {error && (
-          <div className="mx-6 mt-4 p-4 bg-red-900/50 border-2 border-red-500 rounded-xl flex items-start gap-3 text-red-100 shadow-lg backdrop-blur-sm z-10">
+          <div className="mx-4 lg:mx-6 mt-4 p-3 lg:p-4 bg-red-900/50 border-2 border-red-500 rounded-xl flex items-start gap-3 text-red-100 shadow-lg backdrop-blur-sm z-10 text-xs lg:text-sm">
             <AlertCircle className="mt-0.5 flex-shrink-0 text-red-400" size={20} />
             <div>
               <h3 className="font-bold text-red-200">{t('status.error')}</h3>
-              <p className="text-sm opacity-80 mt-1">{error}</p>
+              <p className="opacity-80 mt-1">{error}</p>
             </div>
           </div>
         )}
 
         {/* Table */}
-        <div className="flex-1 overflow-auto p-6 z-0">
-          <div className="bg-[#f0e6d2] border-4 border-[#b89b72] rounded-xl shadow-2xl overflow-hidden h-full flex flex-col relative text-[#2a2a2a]">
+        <div className="flex-1 overflow-auto p-3 lg:p-6 z-0 text-[10px] lg:text-sm">
+          <div className="bg-[#f0e6d2] border-2 lg:border-4 border-[#b89b72] rounded-xl shadow-2xl overflow-hidden h-full flex flex-col relative text-[#2a2a2a]">
             <div className="absolute inset-0 opacity-20 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cream-paper.png')]"></div>
             
             <div className="overflow-auto flex-1 scrollbar-parchment relative z-10">
@@ -402,8 +441,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                 <thead className="bg-[#e6d5b8] sticky top-0 z-10 shadow-md border-b-2 border-[#cbbda2]">
                   <tr>
                     {headers.map((h, i) => (
-                      <th key={i} className="px-4 py-3 text-xs font-black text-[#5c4a35] uppercase tracking-wider min-w-[150px] align-top">
-                        <div className="flex flex-col gap-2">
+                      <th key={i} className="px-3 lg:px-4 py-2 lg:py-3 text-[10px] lg:text-xs font-black text-[#5c4a35] uppercase tracking-wider min-w-[120px] lg:min-w-[150px] align-top">
+                        <div className="flex flex-col gap-1 lg:gap-2">
                           <div className="flex items-center gap-1 cursor-pointer hover:text-[#3a2e20] select-none" onClick={() => toggleSort(h)}>
                             <span>{t(`field.${h}`, h)}</span>
                             {sortConfig?.key === h && (
@@ -412,8 +451,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                           </div>
                           <div className="relative">
                             <input 
-                              className="w-full bg-[#fcf5e5] border border-[#cbbda2] rounded px-2 py-1 text-[11px] font-normal focus:outline-none focus:border-orange-400 placeholder-[#b89b72]"
-                              placeholder={`Filter ${h}...`}
+                              className="w-full bg-[#fcf5e5] border border-[#cbbda2] rounded px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-[11px] font-normal focus:outline-none focus:border-orange-400 placeholder-[#b89b72]"
+                              placeholder={`...`}
                               value={filters[h] || ""}
                               onChange={e => updateFilter(h, e.target.value)}
                             />
@@ -426,29 +465,45 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#dccfb9]">
-                  {shown.map((r, idx) => (
-                    <tr key={(r.eventId || r.attackId || r.warLogId || r.warKey || r.raidId || idx) as any} className="hover:bg-[#fff9ea] transition-colors group odd:bg-[#f0e6d2] even:bg-[#ebe0ca]">
-                      {headers.map((h, i) => (
-                        <td key={i} className="px-4 py-2.5 text-sm font-semibold text-[#4a3b2a] whitespace-nowrap border-r border-[#dccfb9]/50 last:border-0">
-                          {formatValue((r as any)[h], h)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
+                  {shown.map((r, idx) => {
+                    const tag = r.playerTag || r.tag || r.attackerTag;
+                    const name = r.playerName || r.name || r.attackerName;
+                    const canNote = isAuthenticated && tag && name && activeSheetName === "Clan Members";
+
+                    return (
+                      <tr 
+                        key={(r.eventId || r.attackId || r.warLogId || r.warKey || r.raidId || idx) as any} 
+                        onClick={() => canNote && setNoteTarget({ tag, name })}
+                        className={clsx(
+                          "transition-colors group odd:bg-[#f0e6d2] even:bg-[#ebe0ca]",
+                          canNote ? "hover:bg-orange-100 cursor-pointer" : "hover:bg-[#fff9ea]"
+                        )}
+                      >
+                        {headers.map((h, i) => (
+                          <td key={i} className="px-3 lg:px-4 py-2 lg:py-2.5 font-semibold text-[#4a3b2a] whitespace-nowrap border-r border-[#dccfb9]/50 last:border-0 relative">
+                            {formatValue((r as any)[h], h)}
+                            {(canNote && (h === 'playerName' || h === 'name' || h === 'attackerName')) && (
+                              <StickyNote size={12} className="absolute right-1 top-1 text-orange-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
                   {shown.length === 0 && (
                     <tr>
                       <td colSpan={Math.max(1, headers.length)} className="px-6 py-20 text-center text-[#998877]">
                         {(loading || isInitialLoading) ? (
                           <div className="flex flex-col items-center gap-4">
-                            <RotateCw className="animate-spin text-green-600/50" size={64} />
-                            <p className="font-bold text-lg uppercase tracking-widest animate-pulse text-green-800/40">
+                            <RotateCw className="animate-spin text-green-600/50" size={48} />
+                            <p className="font-bold text-base lg:text-lg uppercase tracking-widest animate-pulse text-green-800/40">
                               {t('status.loading', 'Loading...')}
                             </p>
                           </div>
                         ) : (
                           <div className="flex flex-col items-center gap-4 opacity-60">
-                            <Layers size={64} />
-                            <p className="font-bold text-lg uppercase tracking-widest">{t('status.noData')}</p>
+                            <Layers size={48} />
+                            <p className="font-bold text-base lg:text-lg uppercase tracking-widest">{t('status.noData')}</p>
                           </div>
                         )}
                       </td>
@@ -458,10 +513,10 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
               </table>
             </div>
             
-            <div className="border-t-2 border-[#cbbda2] bg-[#e6d5b8] px-4 py-2 text-[10px] text-[#776655] flex justify-between items-center font-bold uppercase relative z-10">
+            <div className="border-t-2 border-[#cbbda2] bg-[#e6d5b8] px-4 py-2 text-[8px] lg:text-[10px] text-[#776655] flex justify-between items-center font-bold uppercase relative z-10">
                <span className="flex items-center gap-1"><Database size={10} /> {t('status.source')}</span>
                {strategy === "append" && (
-                 <span className="text-[#998877] italic normal-case">{t('status.appendNote')}</span>
+                 <span className="text-[#998877] italic normal-case hidden sm:inline">{t('status.appendNote')}</span>
                )}
             </div>
           </div>
@@ -476,6 +531,20 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           onSuccess={(userData) => {
             login(userData);
             setIsLoginOpen(false);
+          }}
+        />
+      )}
+
+      {/* Add Note Modal */}
+      {noteTarget && user && (
+        <AddNoteModal
+          baseUrl={baseUrl}
+          user={user}
+          target={noteTarget}
+          onClose={() => setNoteTarget(null)}
+          onSuccess={() => {
+            setNoteTarget(null);
+            // Optional: force refresh current sheet or show toast
           }}
         />
       )}
