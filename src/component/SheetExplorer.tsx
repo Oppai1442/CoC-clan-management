@@ -24,7 +24,11 @@ import {
   LogIn,
   History,
   StickyNote,
-  Menu
+  Menu,
+  HelpCircle,
+  ChevronRight,
+  ChevronLeft,
+  ArrowBigDownDash
 } from "lucide-react";
 import clsx from "clsx";
 import { useTranslation } from 'react-i18next';
@@ -33,6 +37,11 @@ import { format, parseISO, isValid } from 'date-fns';
 type Props = {
   baseUrl: string;
   pollMs?: number;
+};
+
+type TourStep = {
+  content: string;
+  step: number;
 };
 
 export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
@@ -51,6 +60,31 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const [activeSheetName, setActiveSheetName] = useState("");
 
   const [noteTarget, setNoteTarget] = useState<{ tag: string; name: string; memberNote?: string; adminNote?: string } | null>(null);
+
+  // Tour state
+  const [showTour, setShowTour] = useState(false);
+  const [activeTourIndex, setActiveTourIndex] = useState(0);
+
+  useEffect(() => {
+    const hasSeenTour = localStorage.getItem('hasSeenMainTour');
+    if (!hasSeenTour) {
+      setShowTour(true);
+    }
+  }, []);
+
+  const closeTour = () => {
+    setShowTour(false);
+    localStorage.setItem('hasSeenMainTour', 'true');
+  };
+
+  const tourSteps: TourStep[] = [
+    { content: 'Chào mừng! Đây là nơi bạn chọn các bảng dữ liệu để theo dõi.', step: 1 },
+    { content: 'Bạn có thể tìm kiếm nhanh thông tin trong toàn bộ bảng tại đây.', step: 2 },
+    { content: 'Tại đây bạn có thể xem chiến lược cập nhật (Append/Replace) và vị trí dữ liệu hiện tại.', step: 3 },
+    { content: 'Bấm vào tiêu đề cột để sắp xếp hoặc lọc dữ liệu theo ý muốn.', step: 4 },
+    { content: 'Đăng nhập bằng mã API để xem stats cá nhân và thêm ghi chú.', step: 5 },
+    { content: 'Bảng "Quản lý Thành viên" cho phép bạn và Leader thêm ghi chú trực tiếp.', step: 6 },
+  ];
 
   const {
     sheets, selected, selectedI18nKey, setSelected: hookSetSelected,
@@ -177,6 +211,9 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     <div className="flex h-screen w-full bg-[#2a2a2a] text-[#f0f0f0] font-sans overflow-hidden font-bold select-none relative">
       <div className="absolute inset-0 opacity-10 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
 
+      {/* Tour Backdrop */}
+      {showTour && <div className="fixed inset-0 bg-black/70 z-[58] pointer-events-none transition-opacity duration-500" />}
+
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
@@ -187,8 +224,11 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
 
       {/* Sidebar */}
       <div className={clsx(
-        "w-80 flex-shrink-0 bg-[#1e1e1e] border-r-4 border-[#3a3a3a] flex flex-col shadow-2xl z-50 fixed lg:static inset-y-0 left-0 transition-transform duration-300 ease-in-out lg:translate-x-0",
-        !isSidebarOpen && "-translate-x-full"
+        "w-80 flex-shrink-0 bg-[#1e1e1e] border-r-4 border-[#3a3a3a] flex flex-col shadow-2xl fixed lg:static inset-y-0 left-0 transition-transform duration-300 ease-in-out lg:translate-x-0",
+        !isSidebarOpen && "-translate-x-full",
+        // Tour: Đẩy toàn bộ Sidebar lên trên nếu đang hướng dẫn phần tử trong đó
+        showTour && (activeTourIndex === 0 || activeTourIndex === 4 || activeTourIndex === 5) ? "z-[60]" : "z-50",
+        showTour && activeTourIndex === 0 && "ring-4 ring-yellow-500 ring-inset"
       )}>
         <div className="p-4 bg-[#252525] border-b-4 border-[#111] shadow-lg flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -241,7 +281,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                     "w-full text-left p-3 rounded-xl transition-all duration-100 flex items-center gap-3 group border-2 relative overflow-hidden",
                     isSelected 
                       ? "bg-[#3a2a1a] border-yellow-500 shadow-[0_4px_0_0_rgba(0,0,0,0.3)] translate-y-[-1px]" 
-                      : "bg-[#2a2a2a] border-[#444] hover:bg-[#333] hover:border-[#666] hover:-translate-y-0.5"
+                      : "bg-[#2a2a2a] border-[#444] hover:bg-[#333] hover:border-[#666] hover:-translate-y-0.5",
+                    showTour && activeTourIndex === 5 && s.name === "Quản lý Thành viên" && "ring-4 ring-yellow-500"
                   )}
                 >
                   <div className={clsx(
@@ -273,7 +314,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           )}
         </div>
         
-        <div className="p-3 border-t-4 border-[#111] bg-[#1a1a1a] text-[10px] text-[#666] font-mono">
+        <div className={clsx("p-3 border-t-4 border-[#111] bg-[#1a1a1a] text-[10px] text-[#666] font-mono transition-all", showTour && activeTourIndex === 4 && "ring-4 ring-yellow-500 ring-inset rounded-b-xl bg-[#2a2a2a]")}>
           {isAuthenticated ? (
             <div className="mb-3 p-3 bg-[#2a2a2a] rounded-xl border-2 border-[#3a3a3a] flex items-center justify-between group shadow-inner">
               <div className="flex items-center gap-3">
@@ -336,7 +377,10 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           <div className="w-full h-full opacity-5 bg-[radial-gradient(#444_1px,transparent_1px)] [background-size:16px_16px]"></div>
         </div>
 
-        <header className="bg-[#2a2a2a] border-b-4 border-[#151515] px-4 lg:px-6 py-4 flex items-center justify-between shadow-2xl z-10 relative">
+        <header className={clsx(
+          "bg-[#2a2a2a] border-b-4 border-[#151515] px-4 lg:px-6 py-4 flex items-center justify-between shadow-2xl relative transition-all",
+          showTour && (activeTourIndex === 2) ? "z-[60]" : "z-10"
+        )}>
           <div className="flex items-center gap-3 lg:gap-4">
             <button 
               onClick={() => setIsSidebarOpen(true)}
@@ -344,7 +388,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
             >
               <Menu size={20} />
             </button>
-            <div className="flex flex-col gap-0.5 lg:gap-1">
+            <div className={clsx("flex flex-col gap-0.5 lg:gap-1 transition-all", showTour && activeTourIndex === 2 && "ring-4 ring-yellow-500 ring-offset-4 ring-offset-[#2a2a2a] rounded-lg bg-[#2a2a2a] p-1")}>
               <h2 className="text-lg lg:text-2xl font-black text-white flex items-center gap-2 lg:gap-3" style={{ textShadow: "2px 2px 0 #000" }}>
                 <Shield className="text-gray-500 hidden sm:block" size={24} />
                 {selectedI18nKey ? t(selectedI18nKey, selected) : t('sheet.noSheetSelected')}
@@ -361,6 +405,14 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           </div>
 
           <div className="flex items-center gap-2 lg:gap-4">
+            <button 
+              onClick={() => { setShowTour(true); setActiveTourIndex(0); }} 
+              className="p-2 text-[#666] hover:text-yellow-500 transition-colors"
+              title="Hướng dẫn sử dụng"
+            >
+              <HelpCircle size={24} />
+            </button>
+
              {strategy === "append" && (
               <button 
                 onClick={resetCursor}
@@ -387,7 +439,10 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           </div>
         </header>
 
-        <div className="px-4 lg:px-6 py-3 lg:py-4 bg-[#3d2e1e] border-b border-[#2a2015] flex flex-col sm:flex-row items-stretch sm:items-center gap-3 lg:gap-4 shadow-inner relative z-10">
+        <div className={clsx(
+          "px-4 lg:px-6 py-3 lg:py-4 bg-[#3d2e1e] border-b border-[#2a2015] flex flex-col sm:flex-row items-stretch sm:items-center gap-3 lg:gap-4 shadow-inner relative transition-all",
+          showTour && activeTourIndex === 1 ? "z-[60]" : "z-10"
+        )}>
           {(activeSheetName === "War Members" || activeSheetName === "War Attacks") && (
             <div className="flex items-center gap-2 bg-[#2a1d12] p-1 lg:p-1.5 rounded-xl border-2 border-[#4e3b2a] shadow-inner min-w-0 lg:min-w-[280px]">
               <History size={18} className="ml-2 text-orange-200/40 shrink-0" />
@@ -406,7 +461,10 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
             </div>
           )}
 
-          <div className="relative flex-1">
+          <div className={clsx(
+            "relative flex-1 transition-all", 
+            showTour && activeTourIndex === 1 && "ring-4 ring-yellow-500 rounded-xl bg-[#2a1d12]"
+          )}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-200 opacity-60" size={18} />
             <input
               value={q}
@@ -431,13 +489,16 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
         )}
 
         {/* Table */}
-        <div className="flex-1 overflow-auto p-3 lg:p-6 z-0 text-[10px] lg:text-sm">
+        <div className={clsx(
+          "flex-1 overflow-auto p-3 lg:p-6 z-0 text-[10px] lg:text-sm transition-all",
+          showTour && activeTourIndex === 3 ? "z-[60]" : "z-0"
+        )}>
           <div className="bg-[#f0e6d2] border-2 lg:border-4 border-[#b89b72] rounded-xl shadow-2xl overflow-hidden h-full flex flex-col relative text-[#2a2a2a]">
             <div className="absolute inset-0 opacity-20 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cream-paper.png')]"></div>
             
             <div className="overflow-auto flex-1 scrollbar-parchment relative z-10">
               <table className="w-full text-left border-collapse">
-                <thead className="bg-[#e6d5b8] sticky top-0 z-10 shadow-md border-b-2 border-[#cbbda2]">
+                <thead className={clsx("bg-[#e6d5b8] sticky top-0 z-10 shadow-md border-b-2 border-[#cbbda2] transition-all", showTour && activeTourIndex === 3 && "ring-4 ring-yellow-500")}>
                   <tr>
                     {headers.map((h, i) => (
                       <th key={i} className="px-3 lg:px-4 py-2 lg:py-3 text-[10px] lg:text-xs font-black text-[#5c4a35] uppercase tracking-wider min-w-[120px] lg:min-w-[150px] align-top">
@@ -520,6 +581,84 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
             </div>
           </div>
         </div>
+
+        {/* Tour Overlay UI */}
+        {showTour && (
+          <>
+            {/* Global Dim Background */}
+            <div className="fixed inset-0 bg-black/70 z-[58] pointer-events-none transition-opacity duration-500" />
+            
+            {/* Dynamic Arrow Indicator (Fixed positioning for accuracy) */}
+            <div className={clsx(
+              "fixed z-[100] text-yellow-500 animate-bounce transition-all duration-500 pointer-events-none flex flex-col items-center",
+              activeTourIndex === 0 && "left-40 top-1/2 -translate-y-1/2", // Sidebar middle
+              activeTourIndex === 1 && "left-1/2 top-44 -translate-x-1/2", // Search bar
+              activeTourIndex === 2 && "left-[450px] top-10", // Header Info
+              activeTourIndex === 3 && "left-1/2 top-[35%] -translate-x-1/2", // Table Headers
+              activeTourIndex === 4 && "left-40 bottom-24", // Login section
+              activeTourIndex === 5 && "left-40 top-[25%]" // Members button in sidebar
+            )}>
+              <div className="bg-yellow-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full mb-1 shadow-lg uppercase whitespace-nowrap">Xem ở đây</div>
+              <ArrowBigDownDash size={48} fill="currentColor" className="drop-shadow-[0_0_15px_rgba(234,179,8,1)]" />
+            </div>
+
+            <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[70] flex justify-center pointer-events-none animate-in fade-in slide-in-from-bottom-4 duration-300 w-full max-w-sm px-4">
+              <div className="w-full bg-[#3d2e1e] text-orange-50 p-5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] pointer-events-auto border-4 border-[#b89b72] relative">
+                {/* Decorative Pattern Background */}
+                <div className="absolute inset-0 opacity-10 pointer-events-none rounded-xl overflow-hidden">
+                  <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
+                </div>
+
+                <div className="flex items-start justify-between gap-3 relative z-10">
+                  <div className="flex-1">
+                    <div className="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1.5 drop-shadow-md">
+                      Hướng dẫn • Bước {tourSteps[activeTourIndex].step}/{tourSteps.length}
+                    </div>
+                    <div className="font-bold text-sm lg:text-base leading-snug text-white" style={{ textShadow: "1px 1px 2px #000" }}>
+                      {tourSteps[activeTourIndex].content}
+                    </div>
+                  </div>
+                  <button onClick={closeTour} className="text-orange-200/40 hover:text-white p-1 transition-colors">
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between mt-5 relative z-10">
+                  <div className="flex gap-1.5">
+                    {tourSteps.map((_, i) => (
+                      <div key={i} className={clsx("w-2 h-2 rounded-full transition-all border border-black/20", i === activeTourIndex ? "bg-yellow-500 w-5 shadow-[0_0_5px_rgba(234,179,8,0.5)]" : "bg-white/10")} />
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      disabled={activeTourIndex === 0}
+                      onClick={() => setActiveTourIndex(prev => prev - 1)}
+                      className="p-1.5 bg-[#2a1d12] hover:bg-[#4e3b2a] text-yellow-500 rounded-xl border-b-2 border-[#1a110a] active:border-b-0 active:translate-y-0.5 transition-all disabled:opacity-20"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+                    
+                    {activeTourIndex < tourSteps.length - 1 ? (
+                      <button 
+                        onClick={() => setActiveTourIndex(prev => prev + 1)}
+                        className="bg-orange-600 hover:bg-orange-500 text-white px-5 py-2 rounded-xl text-xs font-black uppercase border-b-4 border-orange-800 active:border-b-0 active:translate-y-1 transition-all shadow-lg tracking-wide"
+                      >
+                        Tiếp theo
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={closeTour}
+                        className="bg-green-600 hover:bg-green-500 text-white px-5 py-2 rounded-xl text-xs font-black uppercase border-b-4 border-green-800 active:border-b-0 active:translate-y-1 transition-all shadow-lg tracking-wide"
+                      >
+                        Khám phá ngay
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Auth Modal */}
