@@ -129,6 +129,7 @@ function handleWarHistory_(req) {
   });
 
   const rows = raw.rows.map(r => ({
+    warKey: r.warKey,
     opponentTag: r.opponentTag,
     opponentName: r.opponentName,
     state: r.state,
@@ -150,7 +151,7 @@ function handleWarHistory_(req) {
     resource: "war-history",
     nextCursor: raw.nextCursor,
     totalAfterFilter: raw.totalAfterFilter,
-    rows
+    rows: rows
   });
 }
 
@@ -166,7 +167,6 @@ function handleWarMembers_(req) {
   });
 
   const rows = raw.rows.map(r => ({
-    warType: r.warType,      // "CW" | "CWL_SEASON"
     playerTag: r.playerTag,
     playerName: r.playerName,
     mapPosition: r.mapPosition,
@@ -175,7 +175,6 @@ function handleWarMembers_(req) {
     starsTotal: num_(r.starsTotal),
     bestDestruction: num_(r.bestDestruction),
     missingAttacks: num_(r.missingAttacks),
-    participationRate: rate_(num_(r.attacksDone), num_(r.attacksRequired)) // 0..1
   }));
 
   return jsonOut_({
@@ -184,7 +183,7 @@ function handleWarMembers_(req) {
     resource: "war-members",
     nextCursor: raw.nextCursor,
     totalAfterFilter: raw.totalAfterFilter,
-    rows
+    rows: rows
   });
 }
 
@@ -200,7 +199,6 @@ function handleWarAttacks_(req) {
   });
 
   const rows = raw.rows.map(r => ({
-    warType: r.warType,
     ts: r.ts,
     attackerTag: r.attackerTag,
     attackerName: r.attackerName,
@@ -216,7 +214,7 @@ function handleWarAttacks_(req) {
     resource: "war-attacks",
     nextCursor: raw.nextCursor,
     totalAfterFilter: raw.totalAfterFilter,
-    rows
+    rows: rows
   });
 }
 
@@ -417,7 +415,6 @@ function handleWarRecommend_(req) {
     candidates.push({
       playerTag: tag,
       playerName: name || s.playerName || "",
-      role,
       roleVi: roleVi_(role),
 
       type,
@@ -815,16 +812,20 @@ function readSheetObjects_(sheetName, req, opt) {
 
   const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
 
-  const strategy = String(opt && opt.strategy ? opt.strategy : inferStrategy_(sheetName)).toLowerCase();
+  // LOGIC MỚI: Nếu có filter hoặc search, ép buộc dùng chiến lược "replace" (quét toàn bộ)
+  const q = String(req.params.q || "").trim();
+  const filtersRaw = String(req.params.filters || "").trim();
+  const filters = filtersRaw ? safeJsonParse_(filtersRaw) : null;
+  
+  let strategy = String(opt && opt.strategy ? opt.strategy : inferStrategy_(sheetName)).toLowerCase();
+  if (q || (filters && Object.keys(filters).length > 0)) {
+    strategy = "replace";
+  }
 
   const tail = clampInt_(req.params.tail, 2000, 0, 20000);
   const cursor = clampInt_(req.params.cursor, 0, 0, 10000000);
   const limit = clampInt_(req.params.limit, 500, 0, 20000);
   const offset = clampInt_(req.params.offset, 0, 0, 10000000);
-
-  const q = String(req.params.q || "").trim();
-  const filtersRaw = String(req.params.filters || "").trim();
-  const filters = filtersRaw ? safeJsonParse_(filtersRaw) : null;
 
   const sortBy = String(req.params.sortBy || (opt && opt.defaultSortBy ? opt.defaultSortBy : "")).trim();
   const sortDir = (String(req.params.sortDir || (opt && opt.defaultSortDir ? opt.defaultSortDir : "asc")).toLowerCase() === "desc") ? "desc" : "asc";
@@ -861,14 +862,14 @@ function readSheetObjects_(sheetName, req, opt) {
     return o;
   });
 
-  // 1) Column filters
+  // 1) Column filters (Xử lý lọc ở Server)
   if (filters && typeof filters === "object") {
     rows = rows.filter(row => {
-      return Object.keys(filters).every(col => matchFilterExpr_(row[col], String(filters[col])));
+      return Object.keys(filters).every(col => matchFilterExpr_(getValCI_(row, col), String(filters[col])));
     });
   }
 
-  // 2) Global search
+  // 2) Global search (Xử lý tìm kiếm ở Server)
   if (q) {
     const qq = q.toLowerCase();
     rows = rows.filter(row => JSON.stringify(row).toLowerCase().includes(qq));
@@ -876,7 +877,7 @@ function readSheetObjects_(sheetName, req, opt) {
 
   // 3) Sorting
   if (sortBy) {
-    rows.sort((a, b) => compareSmart_(a[sortBy], b[sortBy], sortDir));
+    rows.sort((a, b) => compareSmart_(getValCI_(a, sortBy), getValCI_(b, sortBy), sortDir));
   }
 
   const totalAfterFilter = rows.length;
@@ -884,12 +885,6 @@ function readSheetObjects_(sheetName, req, opt) {
   // 4) offset/limit
   if (offset > 0) rows = rows.slice(offset);
   if (limit > 0) rows = rows.slice(0, limit);
-
-  // attach meta
-  rows.forEach(r => {
-    r.__sheet = sheetName;
-    r.__rowHint = ""; // placeholder (khỏi leak row index)
-  });
 
   return {
     rows,
@@ -1382,14 +1377,24 @@ function handleClanMembers_(req) {
     const item = {
       playerTag: r.playerTag,
       name: r.name,
+      role: r.role,
       roleVi: roleVi_(String(r.role || "").trim()),
       townHallLevel: r.townHallLevel,
       warStars: r.warStars,
       memberNote: r.memberNote,
+      adminNote: isManagement ? r.adminNote : "",
+      lastUpdated: r.ts
     };
-    if (isManagement) item.adminNote = r.adminNote;
     return item;
   });
 
   return jsonOut_({ ok: true, ts: new Date().toISOString(), resource: "clan-members", totalAfterFilter: raw.totalAfterFilter, rows: rows });
+}
+
+
+function getValCI_(obj, key) {
+  if (!obj || !key) return "";
+  const target = key.toLowerCase();
+  const found = Object.keys(obj).find(k => k.toLowerCase() === target);
+  return found ? obj[found] : "";
 }

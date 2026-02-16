@@ -673,10 +673,11 @@ function syncClanAndMembers_(cfg) {
     ].map(String));
   });
 
-  // 6. Ghi đè lại bảng MembersCurrent
-  overwriteTable_("MembersCurrent", snapRows);
+  // 6. CẬP NHẬT DỮ LIỆU (Dùng Upsert thay vì Overwrite)
+  // playerTag nằm ở cột thứ 4 (index 1-based)
+  upsertRowsById_("MembersCurrent", 4, snapRows);
 
-  // 7. Xử lý MemberEvents (JOIN/LEAVE/NAME_CHANGE/ROLE_CHANGE)
+  // 7. Xử lý MemberEvents (giữ nguyên logic cũ)
   const props = PropertiesService.getScriptProperties();
   const prevJson = props.getProperty("MEMBER_STATE_JSON");
   const prev = prevJson ? JSON.parse(prevJson) : null;
@@ -1392,7 +1393,8 @@ function computeWarStats_(clanTag, clanName) {
       ].map(String);
     });
 
-  overwriteTable_("WarStats", rows);
+  // playerTag nằm ở cột thứ 4
+  upsertRowsById_("WarStats", 4, rows);
 }
 
 function getWarEndedSet_() {

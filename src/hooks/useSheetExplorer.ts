@@ -15,10 +15,26 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
   filters?: Record<string, string>;
   authTag?: string;
 } = {}) {
+  // Helper to convert path to slug and vice versa
+  const getSlug = (p: string) => p.replace('/api/v1/', '').replace(/\//g, '-');
+  const getPathFromSlug = (s: string) => {
+    const found = AVAILABLE_ENDPOINTS.find(e => getSlug(e.path) === s);
+    return found ? found.path : "";
+  };
+
   // Static list
   const [sheets] = useState<SheetMeta[]>(AVAILABLE_ENDPOINTS.map(e => ({ ...e })));
   
-  const [selectedPath, setSelectedPath] = useState<string>("");
+  // Initialize from URL param
+  const [selectedPath, setSelectedPath] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sheetParam = params.get('sheet');
+    if (sheetParam) {
+      const p = getPathFromSlug(sheetParam);
+      if (p) return p;
+    }
+    return "";
+  });
   const [strategy, setStrategy] = useState<"append" | "replace">("append");
   
   // Data state
@@ -40,6 +56,19 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
   useEffect(() => { cursorRef.current = cursor; }, [cursor]);
 
   const refresh = () => setRefreshKey(prev => prev + 1);
+
+  // Sync selection to URL
+  useEffect(() => {
+    if (!selectedPath) return;
+    const params = new URLSearchParams(window.location.search);
+    const currentSlug = getSlug(selectedPath);
+    
+    if (params.get('sheet') !== currentSlug) {
+      params.set('sheet', currentSlug);
+      const newUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, [selectedPath]);
 
   // Resolve clans effect
   useEffect(() => {

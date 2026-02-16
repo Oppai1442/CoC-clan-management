@@ -121,7 +121,7 @@ const resources = {
       "endpoint.member-events": "Sự kiện Thành viên",
       "endpoint.war-history": "Lịch sử War",
       "endpoint.war-members": "Thành viên War",
-      "endpoint.war-attacks": "Các trận đánh War",
+      "endpoint.war-attacks": "Lịch sử War",
       "endpoint.war-stats-current": "Thống kê War (Hiện tại)",
       "endpoint.war-recommend": "Đề xuất xếp War",
       "endpoint.cwl-season-history": "Lịch sử CWL",
