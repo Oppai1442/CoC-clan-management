@@ -28,7 +28,8 @@ import {
   HelpCircle,
   ChevronRight,
   ChevronLeft,
-  ArrowBigDownDash
+  ArrowBigDownDash,
+  Eye
 } from "lucide-react";
 import clsx from "clsx";
 import { useTranslation } from 'react-i18next';
@@ -62,22 +63,35 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const [noteTarget, setNoteTarget] = useState<{ tag: string; name: string; memberNote?: string; adminNote?: string } | null>(null);
 
   // Tour state
-  const [showTour, setShowTour] = useState(false);
+  const [activeTourType, setActiveTourType] = useState<'main' | 'members' | null>(null);
   const [activeTourIndex, setActiveTourIndex] = useState(0);
 
   useEffect(() => {
-    const hasSeenTour = localStorage.getItem('hasSeenMainTour');
-    if (!hasSeenTour) {
-      setShowTour(true);
+    const hasSeenMain = localStorage.getItem('hasSeenMainTour');
+    if (!hasSeenMain) {
+      setActiveTourType('main');
     }
   }, []);
 
+  // Kích hoạt Tour Ghi chú khi vào đúng bảng Quản lý Thành viên
+  useEffect(() => {
+    if (activeSheetName === "Clan Members") {
+      const hasSeenMembers = localStorage.getItem('hasSeenMembersTour');
+      if (!hasSeenMembers && activeTourType === null) {
+        setActiveTourType('members');
+        setActiveTourIndex(0);
+      }
+    }
+  }, [activeSheetName, activeTourType]);
+
   const closeTour = () => {
-    setShowTour(false);
-    localStorage.setItem('hasSeenMainTour', 'true');
+    if (activeTourType === 'main') localStorage.setItem('hasSeenMainTour', 'true');
+    if (activeTourType === 'members') localStorage.setItem('hasSeenMembersTour', 'true');
+    setActiveTourType(null);
+    setActiveTourIndex(0);
   };
 
-  const tourSteps: TourStep[] = [
+  const mainTourSteps: TourStep[] = [
     { content: 'Chào mừng! Đây là nơi bạn chọn các bảng dữ liệu để theo dõi.', step: 1 },
     { content: 'Bạn có thể tìm kiếm nhanh thông tin trong toàn bộ bảng tại đây.', step: 2 },
     { content: 'Tại đây bạn có thể xem chiến lược cập nhật (Append/Replace) và vị trí dữ liệu hiện tại.', step: 3 },
@@ -86,16 +100,21 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     { content: 'Bảng "Quản lý Thành viên" cho phép bạn và Leader thêm ghi chú trực tiếp.', step: 6 },
   ];
 
-  // Tour: Tự động mở/đóng sidebar trên mobile cho phù hợp nội dung
+  const membersTourSteps: TourStep[] = [
+    { content: 'Tính năng ẩn: CLICK vào bất kỳ dòng nào để xem lịch sử và thêm ghi chú mới.', step: 1 },
+    { content: 'Bạn có thể thêm "Ghi chú cá nhân" để lưu lại các thông tin quan trọng của mình.', step: 2 },
+    { content: 'Các ghi chú sẽ hiển thị bản mới nhất ngay tại bảng này để dễ dàng theo dõi.', step: 3 },
+  ];
+
+  const currentTourSteps = activeTourType === 'members' ? membersTourSteps : mainTourSteps;
+
+  // Tour: Sidebar logic
   useEffect(() => {
-    if (showTour) {
-      if ([0, 4, 5].includes(activeTourIndex)) {
-        setIsSidebarOpen(true);
-      } else {
-        setIsSidebarOpen(false);
-      }
+    if (activeTourType === 'main') {
+      if ([0, 4, 5].includes(activeTourIndex)) setIsSidebarOpen(true);
+      else setIsSidebarOpen(false);
     }
-  }, [activeTourIndex, showTour]);
+  }, [activeTourIndex, activeTourType]);
 
   const {
     sheets, selected, selectedI18nKey, setSelected: hookSetSelected,
@@ -123,7 +142,6 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const setSelected = (name: string) => {
     setActiveSheetName(name);
     hookSetSelected(name);
-    // Close sidebar on mobile after selection
     setIsSidebarOpen(false);
   };
 
@@ -136,23 +154,21 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     }
   }, [baseUrl, activeSheetName]);
 
-  // Helper to format values (especially dates and clan tags)
+  // Helper to format values
   const formatValue = (val: any, columnKey: string) => {
     if (val === null || val === undefined || val === "") return "";
-    
     const strVal = String(val);
 
-    // 1. Clan Tag Resolution (cho mọi cột có chứa chữ 'tag')
     if (columnKey.toLowerCase().includes('tag') && strVal.startsWith('#')) {
       const name = clanNames[strVal];
       return name ? `${name} (${strVal})` : strVal;
     }
 
-    // 2. Note formatting (JSON arrays)
     if ((columnKey === 'adminNote' || columnKey === 'memberNote') && strVal.startsWith('[')) {
       try {
         const notes = JSON.parse(strVal);
-        if (Array.isArray(notes) && notes.length > 0) {
+        if (Array.isArray(notes)) {
+          if (notes.length === 0) return ""; 
           const latest = notes[notes.length - 1];
           return (
             <div className="flex flex-col gap-0.5 min-w-[120px]">
@@ -163,34 +179,26 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
             </div>
           );
         }
-      } catch (e) { /* fallback to string */ }
+      } catch (e) { /* fallback */ }
     }
 
-    // 3. Tự động nhận diện ISO 8601 UTC (kết thúc bằng Z) và chuyển sang giờ địa phương
     if (typeof val === 'string' && val.endsWith('Z')) {
       const basicFormat = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\.\d+)?Z$/;
       const extendedFormat = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
-
       let dateStr = val;
       let isMatch = false;
-
-      if (extendedFormat.test(val)) {
-        isMatch = true;
-      } else if (basicFormat.test(val)) {
+      if (extendedFormat.test(val)) isMatch = true;
+      else if (basicFormat.test(val)) {
         dateStr = val.replace(basicFormat, "$1-$2-$3T$4:$5:$6$7Z");
         isMatch = true;
       }
-
       if (isMatch) {
         try {
           const date = new Date(dateStr);
-          if (isValid(date)) {
-            return format(date, "dd/MM/yyyy HH:mm:ss");
-          }
-        } catch (e) { /* ignore */ }
+          if (isValid(date)) return format(date, "dd/MM/yyyy HH:mm:ss");
+        } catch (e) {}
       }
     }
-
     return strVal;
   };
 
@@ -222,8 +230,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     <div className="flex h-screen w-full bg-[#2a2a2a] text-[#f0f0f0] font-sans overflow-hidden font-bold select-none relative">
       <div className="absolute inset-0 opacity-10 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
 
-      {/* Tour Backdrop: Luôn nằm dưới các phần tử highlight */}
-      {showTour && <div className="fixed inset-0 bg-black/70 z-[80] pointer-events-none transition-opacity duration-500" />}
+      {/* Tour Backdrop */}
+      {activeTourType && <div className="fixed inset-0 bg-black/70 z-[80] pointer-events-none transition-opacity duration-500" />}
 
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
@@ -237,9 +245,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
       <div className={clsx(
         "w-80 flex-shrink-0 bg-[#1e1e1e] border-r-4 border-[#3a3a3a] flex flex-col shadow-2xl fixed lg:static inset-y-0 left-0 transition-transform duration-300 ease-in-out lg:translate-x-0",
         !isSidebarOpen && "-translate-x-full",
-        // Tour: Highlight sidebar bằng z-index cao hơn backdrop
-        showTour && (activeTourIndex === 0 || activeTourIndex === 4 || activeTourIndex === 5) ? "z-[90]" : "z-50",
-        showTour && activeTourIndex === 0 && "ring-4 ring-yellow-500 ring-inset"
+        activeTourType === 'main' && (activeTourIndex === 0 || activeTourIndex === 4 || activeTourIndex === 5) ? "z-[90]" : "z-50",
+        activeTourType === 'main' && activeTourIndex === 0 && "ring-4 ring-yellow-500 ring-inset"
       )}>
         <div className="p-4 bg-[#252525] border-b-4 border-[#111] shadow-lg flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -293,7 +300,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                     isSelected 
                       ? "bg-[#3a2a1a] border-yellow-500 shadow-[0_4px_0_0_rgba(0,0,0,0.3)] translate-y-[-1px]" 
                       : "bg-[#2a2a2a] border-[#444] hover:bg-[#333] hover:border-[#666] hover:-translate-y-0.5",
-                    showTour && activeTourIndex === 5 && s.name === "Quản lý Thành viên" && "ring-4 ring-yellow-500"
+                    activeTourType === 'main' && activeTourIndex === 5 && s.name === "Quản lý Thành viên" && "ring-4 ring-yellow-500"
                   )}
                 >
                   <div className={clsx(
@@ -325,7 +332,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           )}
         </div>
         
-        <div className={clsx("p-3 border-t-4 border-[#111] bg-[#1a1a1a] text-[10px] text-[#666] font-mono transition-all", showTour && activeTourIndex === 4 && "ring-4 ring-yellow-500 ring-inset rounded-b-xl bg-[#2a2a2a]")}>
+        <div className={clsx("p-3 border-t-4 border-[#111] bg-[#1a1a1a] text-[10px] text-[#666] font-mono transition-all", activeTourType === 'main' && activeTourIndex === 4 && "ring-4 ring-yellow-500 ring-inset rounded-b-xl bg-[#2a2a2a]")}>
           {isAuthenticated ? (
             <div className="mb-3 p-3 bg-[#2a2a2a] rounded-xl border-2 border-[#3a3a3a] flex items-center justify-between group shadow-inner">
               <div className="flex items-center gap-3">
@@ -361,9 +368,15 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           )}
 
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <LayoutList size={12} />
-              <span>{t('sidebar.lastUpdate')}: {new Date().toLocaleTimeString()}</span>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <LayoutList size={12} />
+                <span>{t('sidebar.lastUpdate')}: {new Date().toLocaleTimeString()}</span>
+              </div>
+              <div className="flex items-center gap-2 opacity-60">
+                <Eye size={12} />
+                <span>Tổng truy cập: 0</span>
+              </div>
             </div>
             <div className="relative group">
                <button className="p-1.5 bg-[#333] hover:bg-[#444] rounded border border-[#555] text-[#ccc]">
@@ -390,7 +403,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
 
         <header className={clsx(
           "bg-[#2a2a2a] border-b-4 border-[#151515] px-4 lg:px-6 py-4 flex items-center justify-between shadow-2xl relative transition-all",
-          showTour && (activeTourIndex === 2) ? "z-[90]" : "z-10"
+          activeTourType === 'main' && activeTourIndex === 2 ? "z-[90]" : "z-10"
         )}>
           <div className="flex items-center gap-3 lg:gap-4">
             <button 
@@ -399,7 +412,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
             >
               <Menu size={20} />
             </button>
-            <div className={clsx("flex flex-col gap-0.5 lg:gap-1 transition-all", showTour && activeTourIndex === 2 && "ring-4 ring-yellow-500 ring-offset-4 ring-offset-[#2a2a2a] rounded-lg bg-[#2a2a2a] p-1")}>
+            <div className={clsx("flex flex-col gap-0.5 lg:gap-1 transition-all", activeTourType === 'main' && activeTourIndex === 2 && "ring-4 ring-yellow-500 ring-offset-4 ring-offset-[#2a2a2a] rounded-lg bg-[#2a2a2a] p-1")}>
               <h2 className="text-lg lg:text-2xl font-black text-white flex items-center gap-2 lg:gap-3" style={{ textShadow: "2px 2px 0 #000" }}>
                 <Shield className="text-gray-500 hidden sm:block" size={24} />
                 {selectedI18nKey ? t(selectedI18nKey, selected) : t('sheet.noSheetSelected')}
@@ -417,7 +430,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
 
           <div className="flex items-center gap-2 lg:gap-4">
             <button 
-              onClick={() => { setShowTour(true); setActiveTourIndex(0); }} 
+              onClick={() => { setActiveTourType('main'); setActiveTourIndex(0); }} 
               className="p-2 text-[#666] hover:text-yellow-500 transition-colors"
               title="Hướng dẫn sử dụng"
             >
@@ -452,7 +465,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
 
         <div className={clsx(
           "px-4 lg:px-6 py-3 lg:py-4 bg-[#3d2e1e] border-b border-[#2a2015] flex flex-col sm:flex-row items-stretch sm:items-center gap-3 lg:gap-4 shadow-inner relative transition-all",
-          showTour && activeTourIndex === 1 ? "z-[90]" : "z-10"
+          activeTourType === 'main' && activeTourIndex === 1 ? "z-[90]" : "z-10"
         )}>
           {(activeSheetName === "War Members" || activeSheetName === "War Attacks") && (
             <div className="flex items-center gap-2 bg-[#2a1d12] p-1 lg:p-1.5 rounded-xl border-2 border-[#4e3b2a] shadow-inner min-w-0 lg:min-w-[280px]">
@@ -474,7 +487,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
 
           <div className={clsx(
             "relative flex-1 transition-all", 
-            showTour && activeTourIndex === 1 && "ring-4 ring-yellow-500 rounded-xl bg-[#2a1d12]"
+            activeTourType === 'main' && activeTourIndex === 1 && "ring-4 ring-yellow-500 rounded-xl bg-[#2a1d12]"
           )}>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-200 opacity-60" size={18} />
             <input
@@ -502,17 +515,20 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
         {/* Table Container */}
         <div className={clsx(
           "flex-1 overflow-auto p-3 lg:p-6 z-0 text-[10px] lg:text-sm transition-all",
-          showTour && activeTourIndex === 3 ? "z-[90]" : "z-0"
+          (activeTourType === 'main' && activeTourIndex === 3) || activeTourType === 'members' ? "z-[90]" : "z-0"
         )}>
           <div className="bg-[#f0e6d2] border-2 lg:border-4 border-[#b89b72] rounded-xl shadow-2xl overflow-hidden h-full flex flex-col relative text-[#2a2a2a]">
             <div className="absolute inset-0 opacity-20 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cream-paper.png')]"></div>
             
             <div className="overflow-auto flex-1 scrollbar-parchment relative z-10">
               <table className="w-full text-left border-collapse">
-                <thead className={clsx("bg-[#e6d5b8] sticky top-0 z-10 shadow-md border-b-2 border-[#cbbda2] transition-all", showTour && activeTourIndex === 3 && "ring-4 ring-yellow-500")}>
+                <thead className={clsx("bg-[#e6d5b8] sticky top-0 z-10 shadow-md border-b-2 border-[#cbbda2] transition-all", activeTourType === 'main' && activeTourIndex === 3 && "ring-4 ring-yellow-500")}>
                   <tr>
                     {headers.map((h, i) => (
-                      <th key={i} className="px-3 lg:px-4 py-2 lg:py-3 text-[10px] lg:text-xs font-black text-[#5c4a35] uppercase tracking-wider min-w-[120px] lg:min-w-[150px] align-top">
+                      <th key={i} className={clsx(
+                        "px-3 lg:px-4 py-2 lg:py-3 text-[10px] lg:text-xs font-black text-[#5c4a35] uppercase tracking-wider min-w-[120px] lg:min-w-[150px] align-top transition-all",
+                        activeTourType === 'members' && activeTourIndex === 2 && (h === 'memberNote' || h === 'adminNote') && "bg-yellow-500/20 ring-4 ring-yellow-500 ring-inset"
+                      )}>
                         <div className="flex flex-col gap-1 lg:gap-2">
                           <div className="flex items-center gap-1 cursor-pointer hover:text-[#3a2e20] select-none" onClick={() => toggleSort(h)}>
                             <span>{t(`field.${h}`, h)}</span>
@@ -539,7 +555,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                   {shown.map((r, idx) => {
                     const tag = r.playerTag || r.tag || r.attackerTag;
                     const name = r.playerName || r.name || r.attackerName;
-                    const canNote = isAuthenticated && tag && name && activeSheetName === "Quản lý Thành viên";
+                    const canNote = isAuthenticated && tag && name && activeSheetName === "Clan Members";
+                    const isFirstRow = idx === 0;
 
                     return (
                       <tr 
@@ -547,7 +564,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                         onClick={() => canNote && setNoteTarget({ tag, name, memberNote: r.memberNote, adminNote: r.adminNote })}
                         className={clsx(
                           "transition-colors group odd:bg-[#f0e6d2] even:bg-[#ebe0ca]",
-                          canNote ? "hover:bg-orange-100 cursor-pointer" : "hover:bg-[#fff9ea]"
+                          canNote ? "hover:bg-orange-100 cursor-pointer" : "hover:bg-[#fff9ea]",
+                          activeTourType === 'members' && activeTourIndex === 0 && isFirstRow && "ring-4 ring-yellow-500 ring-inset z-50 bg-yellow-100"
                         )}
                       >
                         {headers.map((h, i) => (
@@ -594,47 +612,49 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
         </div>
       </div>
 
-      {/* Tour UI: Lớp UI cao nhất để không bị sidebar che khuất */}
-      {showTour && (
+      {/* Tour UI Overlay */}
+      {activeTourType && (
         <div className="fixed inset-0 z-[120] pointer-events-none">
-          {/* Mũi tên chỉ hướng */}
+          {/* Dynamic Arrow Indicator */}
           <div className={clsx(
             "fixed z-[130] text-yellow-500 animate-bounce transition-all duration-500 flex flex-col items-center",
-            activeTourIndex === 0 && "left-40 top-1/2 -translate-y-1/2", 
-            activeTourIndex === 1 && "left-1/2 top-44 -translate-x-1/2", 
-            activeTourIndex === 2 && "left-[200px] lg:left-[450px] top-10", 
-            activeTourIndex === 3 && "left-1/2 top-[35%] -translate-x-1/2", 
-            activeTourIndex === 4 && "left-40 bottom-24", 
-            activeTourIndex === 5 && "left-40 top-[25%]" 
+            activeTourType === 'main' ? (
+              activeTourIndex === 0 && "left-40 top-1/2 -translate-y-1/2" ||
+              activeTourIndex === 1 && "left-1/2 top-44 -translate-x-1/2" ||
+              activeTourIndex === 2 && "left-[200px] lg:left-[450px] top-10" ||
+              activeTourIndex === 3 && "left-1/2 top-[35%] -translate-x-1/2" ||
+              activeTourIndex === 4 && "left-40 bottom-24" ||
+              activeTourIndex === 5 && "left-40 top-[25%]"
+            ) : (
+              activeTourIndex === 0 && "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" ||
+              activeTourIndex === 1 && "left-1/2 top-[40%] -translate-x-1/2" ||
+              activeTourIndex === 2 && "right-40 top-40"
+            )
           )}>
             <div className="bg-yellow-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full mb-1 shadow-lg uppercase whitespace-nowrap">Xem ở đây</div>
             <ArrowBigDownDash size={48} fill="currentColor" className="drop-shadow-[0_0_15px_rgba(234,179,8,1)]" />
           </div>
 
-          {/* Bong bóng hướng dẫn */}
+          {/* Tour Bubble */}
           <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[140] flex justify-center w-full max-w-sm px-4 pointer-events-auto">
             <div className="w-full bg-[#3d2e1e] text-orange-50 p-5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] border-4 border-[#b89b72] relative overflow-hidden">
-              <div className="absolute inset-0 opacity-10 pointer-events-none">
-                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
-              </div>
-
+              <div className="absolute inset-0 opacity-10 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]" />
               <div className="flex items-start justify-between gap-3 relative z-10">
                 <div className="flex-1">
                   <div className="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1.5 drop-shadow-md">
-                    Hướng dẫn • Bước {tourSteps[activeTourIndex].step}/{tourSteps.length}
+                    {activeTourType === 'members' ? 'Mẹo Ghi chú' : 'Hướng dẫn'} • Bước {currentTourSteps[activeTourIndex].step}/{currentTourSteps.length}
                   </div>
                   <div className="font-bold text-sm lg:text-base leading-snug text-white" style={{ textShadow: "1px 1px 2px #000" }}>
-                    {tourSteps[activeTourIndex].content}
+                    {currentTourSteps[activeTourIndex].content}
                   </div>
                 </div>
                 <button onClick={closeTour} className="text-orange-200/40 hover:text-white p-1 transition-colors">
                   <X size={20} />
                 </button>
               </div>
-
               <div className="flex items-center justify-between mt-5 relative z-10">
                 <div className="flex gap-1.5">
-                  {tourSteps.map((_, i) => (
+                  {currentTourSteps.map((_, i) => (
                     <div key={i} className={clsx("w-2 h-2 rounded-full transition-all border border-black/20", i === activeTourIndex ? "bg-yellow-500 w-5 shadow-[0_0_5px_rgba(234,179,8,0.5)]" : "bg-white/10")} />
                   ))}
                 </div>
@@ -646,8 +666,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                   >
                     <ChevronLeft size={20} />
                   </button>
-                  
-                  {activeTourIndex < tourSteps.length - 1 ? (
+                  {activeTourIndex < currentTourSteps.length - 1 ? (
                     <button 
                       onClick={() => setActiveTourIndex(prev => prev + 1)}
                       className="bg-orange-600 hover:bg-orange-500 text-white px-5 py-2 rounded-xl text-xs font-black uppercase border-b-4 border-orange-800 active:border-b-0 active:translate-y-1 transition-all shadow-lg tracking-wide"
@@ -659,7 +678,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                       onClick={closeTour}
                       className="bg-green-600 hover:bg-green-500 text-white px-5 py-2 rounded-xl text-xs font-black uppercase border-b-4 border-green-800 active:border-b-0 active:translate-y-1 transition-all shadow-lg tracking-wide"
                     >
-                      Khám phá ngay
+                      {activeTourType === 'members' ? 'Đã hiểu' : 'Khám phá ngay'}
                     </button>
                   )}
                 </div>
@@ -691,7 +710,6 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           onSuccess={(newJson, type) => {
             const field = type === 'admin' ? 'adminNote' : 'memberNote';
             mutateRow(noteTarget.tag, field, newJson);
-            // Cập nhật target cục bộ để UI modal cũng đổi theo
             setNoteTarget(prev => prev ? { ...prev, [field]: newJson } : null);
           }}
         />
