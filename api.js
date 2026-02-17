@@ -1371,15 +1371,15 @@ function getValCI_(obj, key) {
 
 function handleAccessStats_(req) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sh = ss.getSheetByName(\"data\");
+  let sh = ss.getSheetByName("data");
   if (!sh) {
-    sh = ss.insertSheet(\"data\");
-    sh.getRange(1, 1).setValue(\"access_time\");
+    sh = ss.insertSheet("data");
+    sh.getRange(1, 1).setValue("access_time");
     sh.getRange(2, 1).setValue(0);
   }
   
   let count = Number(sh.getRange(2, 1).getValue() || 0);
-  const update = String(req.params.update || \"\").toLowerCase() === \"true\";
+  const update = String(req.params.update || "").toLowerCase() === "true";
   
   if (update) {
     count++;
@@ -1388,4 +1388,3 @@ function handleAccessStats_(req) {
   
   return jsonOut_({ ok: true, total: count });
 }
-
