@@ -3,7 +3,7 @@ import { useSheetExplorer } from "../hooks/useSheetExplorer";
 import { useAuth } from "../hooks/useAuth";
 import { LoginModal } from "./LoginModal";
 import { AddNoteModal } from "./AddNoteModal";
-import { fetchEndpoint } from "../lib/sheetApi";
+import { fetchEndpoint, fetchAccessStats } from "../lib/sheetApi";
 import { 
   Search, 
   RotateCw, 
@@ -59,6 +59,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const [selectedWarKey, setSelectedWarKey] = useState("latest");
   const [warHistory, setWarHistory] = useState<any[]>([]);
   const [activeSheetName, setActiveSheetName] = useState("");
+  const [totalVisits, setTotalVisits] = useState(0);
 
   const [noteTarget, setNoteTarget] = useState<{ tag: string; name: string; memberNote?: string; adminNote?: string } | null>(null);
 
@@ -153,6 +154,13 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
         .catch(() => {});
     }
   }, [baseUrl, activeSheetName]);
+
+  // Fetch Access Stats on mount
+  useEffect(() => {
+    fetchAccessStats(baseUrl, true)
+      .then(resp => setTotalVisits(resp.total))
+      .catch(() => {});
+  }, [baseUrl]);
 
   // Helper to format values
   const formatValue = (val: any, columnKey: string) => {
@@ -375,7 +383,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
               </div>
               <div className="flex items-center gap-2 opacity-60">
                 <Eye size={12} />
-                <span>Tổng truy cập: 0</span>
+                <span>Tổng truy cập: {totalVisits.toLocaleString()}</span>
               </div>
             </div>
             <div className="relative group">

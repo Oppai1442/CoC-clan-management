@@ -149,3 +149,8 @@ export async function deletePlayerNote(baseUrl: string, opts: {
   const url = buildUrl(baseUrl, { path: "/api/v1/player/delete-note", ...opts });
   return fetchJson<{ ok: true }>(url);
 }
+
+export async function fetchAccessStats(baseUrl: string, update: boolean = false) {
+  const url = buildUrl(baseUrl, { path: "/api/v1/access-stats", update: update });
+  return fetchJson<{ ok: true, total: number }>(url);
+}

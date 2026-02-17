@@ -69,6 +69,7 @@ function doGet(e) {
     if (route === "/api/v1/clan/sync-live") return handleClanSyncLive_(req);
     if (route === "/api/v1/player/add-note") return handlePlayerAddNote_(req);
     if (route === "/api/v1/player/delete-note") return handlePlayerDeleteNote_(req);
+    if (route === "/api/v1/access-stats") return handleAccessStats_(req);
 
     // Unknown
     return jsonOut_({
@@ -86,7 +87,8 @@ function doGet(e) {
         "/api/v1/player/list-current",
         "/api/v1/clan/sync-live",
         "/api/v1/player/add-note",
-        "/api/v1/player/delete-note"
+        "/api/v1/player/delete-note",
+        "/api/v1/access-stats"
       ]
     });
   } catch (err) {
@@ -1365,3 +1367,25 @@ function getValCI_(obj, key) {
   const found = Object.keys(obj).find(k => k.toLowerCase() === target);
   return found ? obj[found] : "";
 }
+
+
+function handleAccessStats_(req) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(\"data\");
+  if (!sh) {
+    sh = ss.insertSheet(\"data\");
+    sh.getRange(1, 1).setValue(\"access_time\");
+    sh.getRange(2, 1).setValue(0);
+  }
+  
+  let count = Number(sh.getRange(2, 1).getValue() || 0);
+  const update = String(req.params.update || \"\").toLowerCase() === \"true\";
+  
+  if (update) {
+    count++;
+    sh.getRange(2, 1).setValue(count);
+  }
+  
+  return jsonOut_({ ok: true, total: count });
+}
+
