@@ -58,6 +58,7 @@ const SHEETS = {
       "type",           // JOIN | LEAVE | NAME_CHANGE | PROMOTE | DEMOTE
       "playerTag",
       "playerName",
+      "role",           // Chức vụ tại thời điểm xảy ra sự kiện
       "oldValue",
       "newValue"
     ]
@@ -631,48 +632,47 @@ function syncClanAndMembers_(cfg) {
     });
   }
 
-  // 5. MERGE DỮ LIỆU CŨ VÀ MỚI
-  const snapRows = items.map(m => {
-    const tag = m.tag;
-    const p = profMap[tag];           // Dữ liệu từ API vừa fetch (hoặc cache)
-    const oldRow = existingMap.get(tag); // Dữ liệu cũ đang nằm trên sheet
-
-    // Helper: Ưu tiên API > Nếu không có thì dùng Sheet cũ > Cuối cùng mới để trống
-    const getVal = (fieldName, apiVal) => {
-      if (apiVal !== undefined && apiVal !== null && apiVal !== "") return apiVal;
-      const i = idxMap[fieldName];
-      if (oldRow && i !== undefined) return oldRow[i];
-      return "";
-    };
-
-    return ([
-      nowIso,
-      cfg.clanTag,
-      clanName,
-      tag || "",
-      m.name || "",
-      m.role || "",
-      m.expLevel || "",
-      m.trophies || "",
-      m.versusTrophies || "",
-      m.donations || "",
-      m.donationsReceived || "",
-      // builderBaseTrophies: ưu tiên profile (p) > member list (m) > sheet cũ
-      getVal("builderBaseTrophies", p ? p.builderBaseTrophies : (m.builderBaseTrophies || "")),
-      m.clanRank || "",
-      m.previousClanRank || "",
-      (m.league && m.league.name) ? m.league.name : "",
-      getVal("warPreference", p ? p.warPreference : ""),
-      getVal("townHallLevel", p ? p.townHallLevel : ""),
-      getVal("builderHallLevel", p ? p.builderHallLevel : ""),
-      getVal("warStars", p ? p.warStars : ""),
-      getVal("clanCapitalContributions", p ? p.clanCapitalContributions : ""),
-      // Bảo toàn ghi chú (API không có nên sẽ luôn lấy từ sheet cũ)
-      getVal("adminNote", ""),
-      getVal("memberNote", "")
-    ].map(String));
-  });
-
+      // 5. MERGE DỮ LIỆU CŨ VÀ MỚI
+    const snapRows = items.map(m => {
+      const tag = m.tag;
+      const p = profMap[tag];           // Dữ liệu từ API vừa fetch (hoặc cache)
+      const oldRow = existingMap.get(tag); // Dữ liệu cũ đang nằm trên sheet
+  
+      // Helper: Ưu tiên API > Nếu không có thì dùng Sheet cũ > Cuối cùng mới để trống
+      const getVal = (fieldName, apiVal) => {
+        if (apiVal !== undefined && apiVal !== null && apiVal !== "") return apiVal;
+        const i = idxMap[fieldName];
+        if (oldRow && i !== undefined) return oldRow[i];
+        return "";
+      };
+  
+      return cleanRow_([
+        nowIso,
+        cfg.clanTag,
+        clanName,
+        tag || "",
+        m.name || "",
+        m.role || "",
+        m.expLevel || "",
+        m.trophies || "",
+        m.versusTrophies || "",
+        m.donations || "",
+        m.donationsReceived || "",
+        // builderBaseTrophies: ưu tiên profile (p) > member list (m) > sheet cũ
+        getVal("builderBaseTrophies", p ? p.builderBaseTrophies : (m.builderBaseTrophies || "")),
+        m.clanRank || "",
+        m.previousClanRank || "",
+        (m.league && m.league.name) ? m.league.name : "",
+        getVal("warPreference", p ? p.warPreference : ""),
+        getVal("townHallLevel", p ? p.townHallLevel : ""),
+        getVal("builderHallLevel", p ? p.builderHallLevel : ""),
+        getVal("warStars", p ? p.warStars : ""),
+        getVal("clanCapitalContributions", p ? p.clanCapitalContributions : ""),
+        // Bảo toàn ghi chú (API không có nên sẽ luôn lấy từ sheet cũ)
+        getVal("adminNote", ""),
+        getVal("memberNote", "")
+      ]);
+    });
   // 6. CẬP NHẬT DỮ LIỆU (Dùng Upsert thay vì Overwrite)
   // playerTag nằm ở cột thứ 4 (index 1-based)
   upsertRowsById_("MembersCurrent", 4, snapRows);
@@ -694,28 +694,32 @@ function syncClanAndMembers_(cfg) {
   const makeEventId = (type, tag, ts, oldV, newV) => md5Hex_(`${type}|${tag}|${ts}|${oldV}|${newV}`);
 
   Object.keys(curr).forEach(tag => {
+    const name = curr[tag].name;
+    const role = curr[tag].role;
+
     if (!prev[tag]) {
-      const name = curr[tag].name;
-      const role = curr[tag].role;
-      eventRows.push([makeEventId("JOIN", tag, nowIso, "", role), nowIso, cfg.clanTag, clanName, "JOIN", tag, name, "", role]);
+      // JOIN: Để trống old/new value cho sạch
+      eventRows.push([makeEventId("JOIN", tag, nowIso, "", ""), nowIso, cfg.clanTag, clanName, "JOIN", tag, name, role, "", ""]);
     } else {
-      const name = curr[tag].name;
       if (prev[tag].name !== curr[tag].name) {
-        eventRows.push([makeEventId("NAME_CHANGE", tag, nowIso, prev[tag].name, curr[tag].name), nowIso, cfg.clanTag, clanName, "NAME_CHANGE", tag, name, prev[tag].name, curr[tag].name]);
+        // NAME_CHANGE: Lưu tên cũ và tên mới
+        eventRows.push([makeEventId("NAME_CHANGE", tag, nowIso, prev[tag].name, curr[tag].name), nowIso, cfg.clanTag, clanName, "NAME_CHANGE", tag, name, role, prev[tag].name, curr[tag].name]);
       }
       if (prev[tag].role !== curr[tag].role) {
+        // ROLE_CHANGE: Lưu chức vụ cũ và mới
         const oldR = prev[tag].role, newR = curr[tag].role;
         const type = roleRank_(newR) > roleRank_(oldR) ? "PROMOTE" : roleRank_(newR) < roleRank_(oldR) ? "DEMOTE" : "ROLE_CHANGE";
-        eventRows.push([makeEventId(type, tag, nowIso, oldR, newR), nowIso, cfg.clanTag, clanName, type, tag, name, oldR, newR]);
+        eventRows.push([makeEventId(type, tag, nowIso, oldR, newR), nowIso, cfg.clanTag, clanName, type, tag, name, newR, oldR, newR]);
       }
     }
   });
 
   Object.keys(prev).forEach(tag => {
     if (!curr[tag]) {
+      // LEAVE: Để trống old/new value cho sạch
       const name = prev[tag].name;
       const role = prev[tag].role;
-      eventRows.push([makeEventId("LEAVE", tag, nowIso, role, ""), nowIso, cfg.clanTag, clanName, "LEAVE", tag, name, role, ""]);
+      eventRows.push([makeEventId("LEAVE", tag, nowIso, "", ""), nowIso, cfg.clanTag, clanName, "LEAVE", tag, name, role, "", ""]);
     }
   });
 
@@ -826,7 +830,7 @@ function commitWarObject_(cfg, war, warType, sourceId, attacksRequiredOverride) 
   const firstSeen = getFirstSeen_(warKey, nowIso);
 
   // WarCurrent (overwrite single row) — but only runs when digest changed
-  overwriteSingleRow_("WarCurrent", [
+  overwriteSingleRow_("WarCurrent", cleanRow_([
     nowIso,
     warType,
     sourceId,
@@ -845,7 +849,7 @@ function commitWarObject_(cfg, war, warType, sourceId, attacksRequiredOverride) 
     war.opponent?.destructionPercentage ?? "",
     oppTag,
     oppName
-  ].map(String));
+  ]));
 
   // WarMembers (upsert per war per member)
   const memberRows = (war.clan?.members || []).map(m => {
@@ -857,7 +861,7 @@ function commitWarObject_(cfg, war, warType, sourceId, attacksRequiredOverride) 
     const missing = Math.max(0, attacksRequired - attacksDone);
 
     const warMemberId = md5Hex_(`${warKey}|${m.tag || ""}`);
-    return [
+    return cleanRow_([
       warMemberId,
       nowIso,
       warKey,
@@ -873,7 +877,7 @@ function commitWarObject_(cfg, war, warType, sourceId, attacksRequiredOverride) 
       starsTotal,
       bestDes,
       missing
-    ].map(String);
+    ]);
   });
   upsertRowsById_("WarMembers", 1, memberRows);
 
@@ -882,7 +886,7 @@ function commitWarObject_(cfg, war, warType, sourceId, attacksRequiredOverride) 
   (war.clan?.members || []).forEach(m => {
     (m.attacks || []).forEach(a => {
       const attackId = md5Hex_(`${warKey}|clan|${m.tag || ""}|${a.order}`);
-      attackRows.push([
+      attackRows.push(cleanRow_([
         attackId,
         warKey,
         warType,
@@ -894,7 +898,7 @@ function commitWarObject_(cfg, war, warType, sourceId, attacksRequiredOverride) 
         a.stars ?? "",
         a.destructionPercentage ?? "",
         a.order ?? ""
-      ].map(String));
+      ]));
     });
   });
   appendUniqueRows_("WarAttacks", 1, attackRows);
@@ -910,7 +914,7 @@ function commitWarObject_(cfg, war, warType, sourceId, attacksRequiredOverride) 
     war.opponent?.destructionPercentage ?? 0
   );
 
-  appendUniqueRows_("WarHistory", 1, [[
+  appendUniqueRows_("WarHistory", 1, [cleanRow_([
     warKey,
     warType,
     sourceId,
@@ -930,14 +934,14 @@ function commitWarObject_(cfg, war, warType, sourceId, attacksRequiredOverride) 
     war.opponent?.destructionPercentage ?? "",
     oppTag,
     oppName
-  ].map(String)]);
+  ])]);
 
   // Per-member per-war status like python history labels
   const histRows = (war.clan?.members || []).map(m => {
     const done = (m.attacks || []).length;
     const label = statusLabel_(done, attacksRequired, true);
     const rowId = md5Hex_(`${warKey}|${m.tag || ""}|${label}`);
-    return [
+    return cleanRow_([
       rowId,
       nowIso,
       warKey,
@@ -947,7 +951,7 @@ function commitWarObject_(cfg, war, warType, sourceId, attacksRequiredOverride) 
       m.tag || "",
       m.name || "",
       label
-    ].map(String);
+    ]);
   });
   appendUniqueRows_("MemberWarHistory", 1, histRows);
 
@@ -1521,4 +1525,17 @@ function debug403() {
   } catch (e) {
     Logger.log("leaguegroup failed: " + e.message);
   }
+}
+
+
+function cleanRow_(arr) {
+  return arr.map(v => {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "number") {
+      if (!isFinite(v)) return "";
+      if (v % 1 !== 0) return Math.round(v * 100) / 100;
+      return v;
+    }
+    return v;
+  });
 }

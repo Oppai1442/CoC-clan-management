@@ -899,55 +899,24 @@ function readSheetObjects_(sheetName, req, opt) {
  * ========================= */
 
 function shapeMemberEvent_(r) {
-  const type = String(r.type || "").toUpperCase();
-  const playerName = String(r.playerName || "").trim();
-
-  let oldName = "", oldRole = "", newName = "", newRole = "";
-
-  // 1. Initial assignment based on type and playerName column
-  if (type === "JOIN") {
-    newName = playerName;
-    newRole = r.newValue;
-  } else if (type === "LEAVE") {
-    oldName = playerName;
-    oldRole = r.oldValue;
-  } else if (type === "NAME_CHANGE") {
-    oldName = r.oldValue;
-    newName = r.newValue;
-  } else {
-    // PROMOTE, DEMOTE, ROLE_CHANGE
-    oldName = playerName;
-    newName = playerName;
-    oldRole = r.oldValue;
-    newRole = r.newValue;
+  const type = String(getValCI_(r, "type") || "").toUpperCase();
+  const playerName = String(getValCI_(r, "playerName") || "").trim();
+  const role = String(getValCI_(r, "role") || "").trim();
+  const oldValue = String(getValCI_(r, "oldValue") || "").trim();
+  const newValue = String(getValCI_(r, "newValue") || "").trim();
+  
+  if (type === "PROMOTE" || type === "DEMOTE" || type === "ROLE_CHANGE") {
+    oldValue = roleVi_(oldValue);
+    newValue = roleVi_(newValue);
   }
-
-  // 2. Backward compatibility: if oldValue/newValue still contains "|", parse it
-  if (String(r.oldValue).includes("|")) {
-    const p = splitNameRole_(r.oldValue);
-    if (p.name) oldName = p.name;
-    if (p.role) oldRole = p.role;
-  }
-  if (String(r.newValue).includes("|")) {
-    const p = splitNameRole_(r.newValue);
-    if (p.name) newName = p.name;
-    if (p.role) newRole = p.role;
-  }
-
-  // 3. Final fallback: if Name is still empty but we have a playerName, use it
-  if (!oldName && oldRole && playerName) oldName = playerName;
-  if (!newName && newRole && playerName) newName = playerName;
 
   return {
-    ts: r.ts,
-    type: r.type, // JOIN|LEAVE|NAME_CHANGE|ROLE_CHANGE
-    playerTag: r.playerTag,
-
-    oldName,
-    oldRoleVi: roleVi_(oldRole),
-
-    newName,
-    newRoleVi: roleVi_(newRole)
+    ts: getValCI_(r, "ts"),
+    type: type,
+    playerTag: getValCI_(r, "playerTag"),
+    playerName: playerName,
+    oldValue,
+    newValue,
   };
 }
 
@@ -1377,13 +1346,11 @@ function handleClanMembers_(req) {
     const item = {
       playerTag: r.playerTag,
       name: r.name,
-      role: r.role,
-      roleVi: roleVi_(String(r.role || "").trim()),
+      role: roleVi_(String(r.role || "").trim()),
       townHallLevel: r.townHallLevel,
       warStars: r.warStars,
       memberNote: r.memberNote,
-      adminNote: isManagement ? r.adminNote : "",
-      lastUpdated: r.ts
+      adminNote: isManagement ? r.adminNote : ""
     };
     return item;
   });

@@ -86,6 +86,17 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     { content: 'Bảng "Quản lý Thành viên" cho phép bạn và Leader thêm ghi chú trực tiếp.', step: 6 },
   ];
 
+  // Tour: Tự động mở/đóng sidebar trên mobile cho phù hợp nội dung
+  useEffect(() => {
+    if (showTour) {
+      if ([0, 4, 5].includes(activeTourIndex)) {
+        setIsSidebarOpen(true);
+      } else {
+        setIsSidebarOpen(false);
+      }
+    }
+  }, [activeTourIndex, showTour]);
+
   const {
     sheets, selected, selectedI18nKey, setSelected: hookSetSelected,
     strategy, headers, rows, lastRow,
@@ -211,8 +222,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     <div className="flex h-screen w-full bg-[#2a2a2a] text-[#f0f0f0] font-sans overflow-hidden font-bold select-none relative">
       <div className="absolute inset-0 opacity-10 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
 
-      {/* Tour Backdrop */}
-      {showTour && <div className="fixed inset-0 bg-black/70 z-[58] pointer-events-none transition-opacity duration-500" />}
+      {/* Tour Backdrop: Luôn nằm dưới các phần tử highlight */}
+      {showTour && <div className="fixed inset-0 bg-black/70 z-[80] pointer-events-none transition-opacity duration-500" />}
 
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
@@ -226,8 +237,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
       <div className={clsx(
         "w-80 flex-shrink-0 bg-[#1e1e1e] border-r-4 border-[#3a3a3a] flex flex-col shadow-2xl fixed lg:static inset-y-0 left-0 transition-transform duration-300 ease-in-out lg:translate-x-0",
         !isSidebarOpen && "-translate-x-full",
-        // Tour: Đẩy toàn bộ Sidebar lên trên nếu đang hướng dẫn phần tử trong đó
-        showTour && (activeTourIndex === 0 || activeTourIndex === 4 || activeTourIndex === 5) ? "z-[60]" : "z-50",
+        // Tour: Highlight sidebar bằng z-index cao hơn backdrop
+        showTour && (activeTourIndex === 0 || activeTourIndex === 4 || activeTourIndex === 5) ? "z-[90]" : "z-50",
         showTour && activeTourIndex === 0 && "ring-4 ring-yellow-500 ring-inset"
       )}>
         <div className="p-4 bg-[#252525] border-b-4 border-[#111] shadow-lg flex items-center justify-between">
@@ -379,7 +390,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
 
         <header className={clsx(
           "bg-[#2a2a2a] border-b-4 border-[#151515] px-4 lg:px-6 py-4 flex items-center justify-between shadow-2xl relative transition-all",
-          showTour && (activeTourIndex === 2) ? "z-[60]" : "z-10"
+          showTour && (activeTourIndex === 2) ? "z-[90]" : "z-10"
         )}>
           <div className="flex items-center gap-3 lg:gap-4">
             <button 
@@ -441,7 +452,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
 
         <div className={clsx(
           "px-4 lg:px-6 py-3 lg:py-4 bg-[#3d2e1e] border-b border-[#2a2015] flex flex-col sm:flex-row items-stretch sm:items-center gap-3 lg:gap-4 shadow-inner relative transition-all",
-          showTour && activeTourIndex === 1 ? "z-[60]" : "z-10"
+          showTour && activeTourIndex === 1 ? "z-[90]" : "z-10"
         )}>
           {(activeSheetName === "War Members" || activeSheetName === "War Attacks") && (
             <div className="flex items-center gap-2 bg-[#2a1d12] p-1 lg:p-1.5 rounded-xl border-2 border-[#4e3b2a] shadow-inner min-w-0 lg:min-w-[280px]">
@@ -488,10 +499,10 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           </div>
         )}
 
-        {/* Table */}
+        {/* Table Container */}
         <div className={clsx(
           "flex-1 overflow-auto p-3 lg:p-6 z-0 text-[10px] lg:text-sm transition-all",
-          showTour && activeTourIndex === 3 ? "z-[60]" : "z-0"
+          showTour && activeTourIndex === 3 ? "z-[90]" : "z-0"
         )}>
           <div className="bg-[#f0e6d2] border-2 lg:border-4 border-[#b89b72] rounded-xl shadow-2xl overflow-hidden h-full flex flex-col relative text-[#2a2a2a]">
             <div className="absolute inset-0 opacity-20 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cream-paper.png')]"></div>
@@ -581,85 +592,82 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Tour Overlay UI */}
-        {showTour && (
-          <>
-            {/* Global Dim Background */}
-            <div className="fixed inset-0 bg-black/70 z-[58] pointer-events-none transition-opacity duration-500" />
-            
-            {/* Dynamic Arrow Indicator (Fixed positioning for accuracy) */}
-            <div className={clsx(
-              "fixed z-[100] text-yellow-500 animate-bounce transition-all duration-500 pointer-events-none flex flex-col items-center",
-              activeTourIndex === 0 && "left-40 top-1/2 -translate-y-1/2", // Sidebar middle
-              activeTourIndex === 1 && "left-1/2 top-44 -translate-x-1/2", // Search bar
-              activeTourIndex === 2 && "left-[450px] top-10", // Header Info
-              activeTourIndex === 3 && "left-1/2 top-[35%] -translate-x-1/2", // Table Headers
-              activeTourIndex === 4 && "left-40 bottom-24", // Login section
-              activeTourIndex === 5 && "left-40 top-[25%]" // Members button in sidebar
-            )}>
-              <div className="bg-yellow-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full mb-1 shadow-lg uppercase whitespace-nowrap">Xem ở đây</div>
-              <ArrowBigDownDash size={48} fill="currentColor" className="drop-shadow-[0_0_15px_rgba(234,179,8,1)]" />
-            </div>
+      {/* Tour UI: Lớp UI cao nhất để không bị sidebar che khuất */}
+      {showTour && (
+        <div className="fixed inset-0 z-[120] pointer-events-none">
+          {/* Mũi tên chỉ hướng */}
+          <div className={clsx(
+            "fixed z-[130] text-yellow-500 animate-bounce transition-all duration-500 flex flex-col items-center",
+            activeTourIndex === 0 && "left-40 top-1/2 -translate-y-1/2", 
+            activeTourIndex === 1 && "left-1/2 top-44 -translate-x-1/2", 
+            activeTourIndex === 2 && "left-[200px] lg:left-[450px] top-10", 
+            activeTourIndex === 3 && "left-1/2 top-[35%] -translate-x-1/2", 
+            activeTourIndex === 4 && "left-40 bottom-24", 
+            activeTourIndex === 5 && "left-40 top-[25%]" 
+          )}>
+            <div className="bg-yellow-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full mb-1 shadow-lg uppercase whitespace-nowrap">Xem ở đây</div>
+            <ArrowBigDownDash size={48} fill="currentColor" className="drop-shadow-[0_0_15px_rgba(234,179,8,1)]" />
+          </div>
 
-            <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[70] flex justify-center pointer-events-none animate-in fade-in slide-in-from-bottom-4 duration-300 w-full max-w-sm px-4">
-              <div className="w-full bg-[#3d2e1e] text-orange-50 p-5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] pointer-events-auto border-4 border-[#b89b72] relative">
-                {/* Decorative Pattern Background */}
-                <div className="absolute inset-0 opacity-10 pointer-events-none rounded-xl overflow-hidden">
-                  <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
-                </div>
+          {/* Bong bóng hướng dẫn */}
+          <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[140] flex justify-center w-full max-w-sm px-4 pointer-events-auto">
+            <div className="w-full bg-[#3d2e1e] text-orange-50 p-5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] border-4 border-[#b89b72] relative overflow-hidden">
+              <div className="absolute inset-0 opacity-10 pointer-events-none">
+                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
+              </div>
 
-                <div className="flex items-start justify-between gap-3 relative z-10">
-                  <div className="flex-1">
-                    <div className="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1.5 drop-shadow-md">
-                      Hướng dẫn • Bước {tourSteps[activeTourIndex].step}/{tourSteps.length}
-                    </div>
-                    <div className="font-bold text-sm lg:text-base leading-snug text-white" style={{ textShadow: "1px 1px 2px #000" }}>
-                      {tourSteps[activeTourIndex].content}
-                    </div>
+              <div className="flex items-start justify-between gap-3 relative z-10">
+                <div className="flex-1">
+                  <div className="text-[10px] font-black uppercase text-yellow-500 tracking-widest mb-1.5 drop-shadow-md">
+                    Hướng dẫn • Bước {tourSteps[activeTourIndex].step}/{tourSteps.length}
                   </div>
-                  <button onClick={closeTour} className="text-orange-200/40 hover:text-white p-1 transition-colors">
-                    <X size={20} />
+                  <div className="font-bold text-sm lg:text-base leading-snug text-white" style={{ textShadow: "1px 1px 2px #000" }}>
+                    {tourSteps[activeTourIndex].content}
+                  </div>
+                </div>
+                <button onClick={closeTour} className="text-orange-200/40 hover:text-white p-1 transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between mt-5 relative z-10">
+                <div className="flex gap-1.5">
+                  {tourSteps.map((_, i) => (
+                    <div key={i} className={clsx("w-2 h-2 rounded-full transition-all border border-black/20", i === activeTourIndex ? "bg-yellow-500 w-5 shadow-[0_0_5px_rgba(234,179,8,0.5)]" : "bg-white/10")} />
+                  ))}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button 
+                    disabled={activeTourIndex === 0}
+                    onClick={() => setActiveTourIndex(prev => prev - 1)}
+                    className="p-1.5 bg-[#2a1d12] hover:bg-[#4e3b2a] text-yellow-500 rounded-xl border-b-2 border-[#1a110a] active:border-b-0 active:translate-y-0.5 transition-all disabled:opacity-20"
+                  >
+                    <ChevronLeft size={20} />
                   </button>
-                </div>
-
-                <div className="flex items-center justify-between mt-5 relative z-10">
-                  <div className="flex gap-1.5">
-                    {tourSteps.map((_, i) => (
-                      <div key={i} className={clsx("w-2 h-2 rounded-full transition-all border border-black/20", i === activeTourIndex ? "bg-yellow-500 w-5 shadow-[0_0_5px_rgba(234,179,8,0.5)]" : "bg-white/10")} />
-                    ))}
-                  </div>
-                  <div className="flex items-center gap-3">
+                  
+                  {activeTourIndex < tourSteps.length - 1 ? (
                     <button 
-                      disabled={activeTourIndex === 0}
-                      onClick={() => setActiveTourIndex(prev => prev - 1)}
-                      className="p-1.5 bg-[#2a1d12] hover:bg-[#4e3b2a] text-yellow-500 rounded-xl border-b-2 border-[#1a110a] active:border-b-0 active:translate-y-0.5 transition-all disabled:opacity-20"
+                      onClick={() => setActiveTourIndex(prev => prev + 1)}
+                      className="bg-orange-600 hover:bg-orange-500 text-white px-5 py-2 rounded-xl text-xs font-black uppercase border-b-4 border-orange-800 active:border-b-0 active:translate-y-1 transition-all shadow-lg tracking-wide"
                     >
-                      <ChevronLeft size={20} />
+                      Tiếp theo
                     </button>
-                    
-                    {activeTourIndex < tourSteps.length - 1 ? (
-                      <button 
-                        onClick={() => setActiveTourIndex(prev => prev + 1)}
-                        className="bg-orange-600 hover:bg-orange-500 text-white px-5 py-2 rounded-xl text-xs font-black uppercase border-b-4 border-orange-800 active:border-b-0 active:translate-y-1 transition-all shadow-lg tracking-wide"
-                      >
-                        Tiếp theo
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={closeTour}
-                        className="bg-green-600 hover:bg-green-500 text-white px-5 py-2 rounded-xl text-xs font-black uppercase border-b-4 border-green-800 active:border-b-0 active:translate-y-1 transition-all shadow-lg tracking-wide"
-                      >
-                        Khám phá ngay
-                      </button>
-                    )}
-                  </div>
+                  ) : (
+                    <button 
+                      onClick={closeTour}
+                      className="bg-green-600 hover:bg-green-500 text-white px-5 py-2 rounded-xl text-xs font-black uppercase border-b-4 border-green-800 active:border-b-0 active:translate-y-1 transition-all shadow-lg tracking-wide"
+                    >
+                      Khám phá ngay
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
 
       {/* Auth Modal */}
       {isLoginOpen && (
