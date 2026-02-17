@@ -151,6 +151,6 @@ export async function deletePlayerNote(baseUrl: string, opts: {
 }
 
 export async function fetchAccessStats(baseUrl: string, update: boolean = false) {
-  const url = buildUrl(baseUrl, { path: "/api/v1/access-stats", update: update });
+  const url = buildUrl(baseUrl, { path: "/api/v1/access-stats", update: String(update) });
   return fetchJson<{ ok: true, total: number }>(url);
 }
