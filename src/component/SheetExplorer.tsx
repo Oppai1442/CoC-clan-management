@@ -54,7 +54,32 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const [q, setQ] = useState("");
   const [maxShow, setMaxShow] = useState(500);
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [tempFilters, setTempFilters] = useState<Record<string, string>>({}); // State cho nội dung đang nhập
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+  // Debounce logic cho filters
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters(tempFilters);
+    }, 2000); // 2 giây
+
+    return () => clearTimeout(timer);
+  }, [tempFilters]);
+
+  const updateFilter = (key: string, val: string) => {
+    setTempFilters(prev => {
+      const next = { ...prev };
+      if (!val) delete next[key];
+      else next[key] = val;
+      return next;
+    });
+  };
+
+  const handleFilterKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      setFilters(tempFilters); // Áp dụng ngay lập tức khi nhấn Enter
+    }
+  };
 
   const [selectedWarKey, setSelectedWarKey] = useState("latest");
   const [warHistory, setWarHistory] = useState<any[]>([]);
@@ -219,20 +244,22 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
       return { key, direction: 'asc' };
     });
   };
-
-  const updateFilter = (key: string, val: string) => {
-    setFilters(prev => {
-      const next = { ...prev };
-      if (!val) delete next[key];
-      else next[key] = val;
-      return next;
-    });
-  };
-
+  
   const shown = useMemo(() => {
     if (rows.length > maxShow) return rows.slice(rows.length - maxShow);
     return rows;
   }, [rows, maxShow]);
+
+  // Filter out internal/technical columns for cleaner UI
+  const visibleHeaders = useMemo(() => {
+    return headers.filter(h => {
+      // Hide warKey in War History/Members/Attacks
+      if (h === 'warKey' || h === 'warMemberId' || h === 'attackId' || h === 'eventId' || h === 'rowId' || h === 'seasonKey' || h === 'roundKey' || h === 'roundMemberId' || h === 'raidId' || h === 'raidMemberId') {
+        return false;
+      }
+      return true;
+    });
+  }, [headers, activeSheetName]);
 
   return (
     <div className="flex h-screen w-full bg-[#2a2a2a] text-[#f0f0f0] font-sans overflow-hidden font-bold select-none relative">
@@ -532,7 +559,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
               <table className="w-full text-left border-collapse">
                 <thead className={clsx("bg-[#e6d5b8] sticky top-0 z-10 shadow-md border-b-2 border-[#cbbda2] transition-all", activeTourType === 'main' && activeTourIndex === 3 && "ring-4 ring-yellow-500")}>
                   <tr>
-                    {headers.map((h, i) => (
+                    {visibleHeaders.map((h, i) => (
                       <th key={i} className={clsx(
                         "px-3 lg:px-4 py-2 lg:py-3 text-[10px] lg:text-xs font-black text-[#5c4a35] uppercase tracking-wider min-w-[120px] lg:min-w-[150px] align-top transition-all",
                         activeTourType === 'members' && activeTourIndex === 2 && (h === 'memberNote' || h === 'adminNote') && "bg-yellow-500/20 ring-4 ring-yellow-500 ring-inset"
@@ -548,15 +575,16 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                             <input 
                               className="w-full bg-[#fcf5e5] border border-[#cbbda2] rounded px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-[11px] font-normal focus:outline-none focus:border-orange-400 placeholder-[#b89b72]"
                               placeholder={`...`}
-                              value={filters[h] || ""}
+                              value={tempFilters[h] || ""}
                               onChange={e => updateFilter(h, e.target.value)}
+                              onKeyDown={handleFilterKeyDown}
                             />
-                            {filters[h] && <button onClick={() => updateFilter(h, "")} className="absolute right-1 top-1/2 -translate-y-1/2 text-[#b89b72] hover:text-red-500"><X size={10} /></button>}
+                            {tempFilters[h] && <button onClick={() => updateFilter(h, "")} className="absolute right-1 top-1/2 -translate-y-1/2 text-[#b89b72] hover:text-red-500"><X size={10} /></button>}
                           </div>
                         </div>
                       </th>
                     ))}
-                    {headers.length === 0 && <th className="p-4"></th>}
+                    {visibleHeaders.length === 0 && <th className="p-4"></th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#dccfb9]">
@@ -576,7 +604,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                           activeTourType === 'members' && activeTourIndex === 0 && isFirstRow && "ring-4 ring-yellow-500 ring-inset z-50 bg-yellow-100"
                         )}
                       >
-                        {headers.map((h, i) => (
+                        {visibleHeaders.map((h, i) => (
                           <td key={i} className="px-3 lg:px-4 py-2 lg:py-2.5 font-semibold text-[#4a3b2a] whitespace-nowrap border-r border-[#dccfb9]/50 last:border-0 relative">
                             {formatValue((r as any)[h], h)}
                             {(canNote && (h === 'playerName' || h === 'name' || h === 'attackerName')) && (
@@ -589,7 +617,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                   })}
                   {shown.length === 0 && (
                     <tr>
-                      <td colSpan={Math.max(1, headers.length)} className="px-6 py-20 text-center text-[#998877]">
+                      <td colSpan={Math.max(1, visibleHeaders.length)} className="px-6 py-20 text-center text-[#998877]">
                         {(loading || isInitialLoading) ? (
                           <div className="flex flex-col items-center gap-4">
                             <RotateCw className="animate-spin text-green-600/50" size={48} />

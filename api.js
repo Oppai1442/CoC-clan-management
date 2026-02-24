@@ -903,9 +903,8 @@ function readSheetObjects_(sheetName, req, opt) {
 function shapeMemberEvent_(r) {
   const type = String(getValCI_(r, "type") || "").toUpperCase();
   const playerName = String(getValCI_(r, "playerName") || "").trim();
-  const role = String(getValCI_(r, "role") || "").trim();
-  const oldValue = String(getValCI_(r, "oldValue") || "").trim();
-  const newValue = String(getValCI_(r, "newValue") || "").trim();
+  let oldValue = String(getValCI_(r, "oldValue") || "").trim();
+  let newValue = String(getValCI_(r, "newValue") || "").trim();
   
   if (type === "PROMOTE" || type === "DEMOTE" || type === "ROLE_CHANGE") {
     oldValue = roleVi_(oldValue);
