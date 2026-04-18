@@ -50,6 +50,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const { user, login, logout, isAuthenticated } = useAuth();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   
   const [q, setQ] = useState("");
   const [maxShow, setMaxShow] = useState(500);
@@ -165,6 +166,10 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     if (selected) setActiveSheetName(selected);
   }, [selected]);
 
+  useEffect(() => {
+    setSelectedRowId(null);
+  }, [activeSheetName]);
+
   const setSelected = (name: string) => {
     setActiveSheetName(name);
     hookSetSelected(name);
@@ -249,6 +254,25 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     if (rows.length > maxShow) return rows.slice(rows.length - maxShow);
     return rows;
   }, [rows, maxShow]);
+
+  const getRowSelectionKey = (row: Record<string, any>, idx: number) => {
+    return String(
+      row.playerTag ||
+      row.tag ||
+      row.attackerTag ||
+      row.defenderTag ||
+      row.eventId ||
+      row.attackId ||
+      row.warMemberId ||
+      row.roundMemberId ||
+      row.raidMemberId ||
+      row.rowId ||
+      row.warKey ||
+      row.roundKey ||
+      row.raidId ||
+      `${activeSheetName}-${idx}`
+    );
+  };
 
   // Filter out internal/technical columns for cleaner UI
   const visibleHeaders = useMemo(() => {
@@ -593,19 +617,36 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                     const name = r.playerName || r.name || r.attackerName;
                     const canNote = isAuthenticated && tag && name && activeSheetName === "Clan Members";
                     const isFirstRow = idx === 0;
+                    const rowKey = getRowSelectionKey(r, idx);
+                    const isSelected = selectedRowId === rowKey;
 
                     return (
                       <tr 
-                        key={(r.eventId || r.attackId || r.warLogId || r.warKey || r.raidId || idx) as any} 
-                        onClick={() => canNote && setNoteTarget({ tag, name, memberNote: r.memberNote, adminNote: r.adminNote })}
+                        key={rowKey}
+                        onClick={() => {
+                          setSelectedRowId(rowKey);
+                          if (canNote) {
+                            setNoteTarget({ tag, name, memberNote: r.memberNote, adminNote: r.adminNote });
+                          }
+                        }}
                         className={clsx(
-                          "transition-colors group odd:bg-[#f0e6d2] even:bg-[#ebe0ca]",
-                          canNote ? "hover:bg-orange-100 cursor-pointer" : "hover:bg-[#fff9ea]",
+                          "transition-colors group odd:bg-[#f0e6d2] even:bg-[#ebe0ca] cursor-pointer",
+                          isSelected
+                            ? "bg-[#f8e7b8]"
+                            : canNote
+                              ? "hover:bg-orange-100"
+                              : "hover:bg-[#fff9ea]",
                           activeTourType === 'members' && activeTourIndex === 0 && isFirstRow && "ring-4 ring-yellow-500 ring-inset z-50 bg-yellow-100"
                         )}
                       >
                         {visibleHeaders.map((h, i) => (
-                          <td key={i} className="px-3 lg:px-4 py-2 lg:py-2.5 font-semibold text-[#4a3b2a] whitespace-nowrap border-r border-[#dccfb9]/50 last:border-0 relative">
+                          <td
+                            key={i}
+                            className={clsx(
+                              "px-3 lg:px-4 py-2 lg:py-2.5 font-semibold text-[#4a3b2a] whitespace-nowrap border-r border-[#dccfb9]/50 last:border-0 relative transition-colors",
+                              isSelected && "bg-[#f6de9f]"
+                            )}
+                          >
                             {formatValue((r as any)[h], h)}
                             {(canNote && (h === 'playerName' || h === 'name' || h === 'attackerName')) && (
                               <StickyNote size={12} className="absolute right-1 top-1 text-orange-400 opacity-0 group-hover:opacity-100 transition-opacity" />

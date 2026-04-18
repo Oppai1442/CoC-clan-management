@@ -21,6 +21,12 @@
  * SHEETS
  * ========================= */
 const SHEETS = {
+  data: {
+    headers: [
+      "access_time",
+      "link"
+    ]
+  },
   ClanCurrent: {
     headers: [
       "ts",
@@ -47,7 +53,8 @@ const SHEETS = {
       "warStars",
       "clanCapitalContributions",
       "adminNote",
-      "memberNote"
+      "memberNote",
+      "status" // Cột mới để biết còn trong clan không
     ]
   },
 
@@ -58,7 +65,6 @@ const SHEETS = {
       "type",           // JOIN | LEAVE | NAME_CHANGE | PROMOTE | DEMOTE
       "playerTag",
       "playerName",
-      "role",           // Chức vụ tại thời điểm xảy ra sự kiện
       "oldValue",
       "newValue"
     ]
@@ -632,51 +638,69 @@ function syncClanAndMembers_(cfg) {
     });
   }
 
-      // 5. MERGE DỮ LIỆU CŨ VÀ MỚI
-    const snapRows = items.map(m => {
-      const tag = m.tag;
-      const p = profMap[tag];           // Dữ liệu từ API vừa fetch (hoặc cache)
-      const oldRow = existingMap.get(tag); // Dữ liệu cũ đang nằm trên sheet
-  
-      // Helper: Ưu tiên API > Nếu không có thì dùng Sheet cũ > Cuối cùng mới để trống
-      const getVal = (fieldName, apiVal) => {
-        if (apiVal !== undefined && apiVal !== null && apiVal !== "") return apiVal;
-        const i = idxMap[fieldName];
-        if (oldRow && i !== undefined) return oldRow[i];
-        return "";
-      };
-  
-      return cleanRow_([
-        nowIso,
-        cfg.clanTag,
-        clanName,
-        tag || "",
-        m.name || "",
-        m.role || "",
-        m.expLevel || "",
-        m.trophies || "",
-        m.versusTrophies || "",
-        m.donations || "",
-        m.donationsReceived || "",
-        // builderBaseTrophies: ưu tiên profile (p) > member list (m) > sheet cũ
-        getVal("builderBaseTrophies", p ? p.builderBaseTrophies : (m.builderBaseTrophies || "")),
-        m.clanRank || "",
-        m.previousClanRank || "",
-        (m.league && m.league.name) ? m.league.name : "",
-        getVal("warPreference", p ? p.warPreference : ""),
-        getVal("townHallLevel", p ? p.townHallLevel : ""),
-        getVal("builderHallLevel", p ? p.builderHallLevel : ""),
-        getVal("warStars", p ? p.warStars : ""),
-        getVal("clanCapitalContributions", p ? p.clanCapitalContributions : ""),
-        // Bảo toàn ghi chú (API không có nên sẽ luôn lấy từ sheet cũ)
-        getVal("adminNote", ""),
-        getVal("memberNote", "")
-      ]);
-    });
-  // 6. CẬP NHẬT DỮ LIỆU (Dùng Upsert thay vì Overwrite)
-  // playerTag nằm ở cột thứ 4 (index 1-based)
-  upsertRowsById_("MembersCurrent", 4, snapRows);
-
+            // 5. MERGE DỮ LIỆU CŨ VÀ MỚI
+          const currentTagsSet = new Set(tags);
+          const snapRows = items.map(m => {
+            const tag = m.tag;
+            const p = profMap[tag];           // Dữ liệu từ API vừa fetch (hoặc cache)
+            const oldRow = existingMap.get(tag); // Dữ liệu cũ đang nằm trên sheet
+        
+            // Helper: Ưu tiên API > Nếu không có thì dùng Sheet cũ > Cuối cùng mới để trống
+            const getVal = (fieldName, apiVal) => {
+              if (apiVal !== undefined && apiVal !== null && apiVal !== "") return apiVal;
+              const i = idxMap[fieldName];
+              if (oldRow && i !== undefined) return oldRow[i];
+              return "";
+            };
+        
+            return cleanRow_([
+              nowIso,
+              cfg.clanTag,
+              clanName,
+              tag || "",
+              m.name || "",
+              m.role || "",
+              m.expLevel || "",
+              m.trophies || "",
+              m.versusTrophies || "",
+              m.donations || "",
+              m.donationsReceived || "",
+              // builderBaseTrophies: ưu tiên profile (p) > member list (m) > sheet cũ
+              getVal("builderBaseTrophies", p ? p.builderBaseTrophies : (m.builderBaseTrophies || "")),   
+              m.clanRank || "",
+              m.previousClanRank || "",
+              (m.league && m.league.name) ? m.league.name : "",
+              getVal("warPreference", p ? p.warPreference : ""),
+              getVal("townHallLevel", p ? p.townHallLevel : ""),
+              getVal("builderHallLevel", p ? p.builderHallLevel : ""),
+              getVal("warStars", p ? p.warStars : ""),
+              getVal("clanCapitalContributions", p ? p.clanCapitalContributions : ""),
+              // Bảo toàn ghi chú (API không có nên sẽ luôn lấy từ sheet cũ)
+              getVal("adminNote", ""),
+              getVal("memberNote", ""),
+              "IN" // Đang ở trong Clan
+            ]);
+          });
+      
+          // 5.1 Xác định những người đã RỜI CLAN (Có trong sheet cũ nhưng không có trong API mới)
+          const outRows = [];
+          existingMap.forEach((oldRow, tag) => {
+            if (!currentTagsSet.has(tag)) {
+              // Người này đã out. Cập nhật status = OUT, giữ nguyên Note
+              const updatedRow = [...oldRow];
+              // Đảm bảo hàng có đủ độ dài cho cột status mới
+              while (updatedRow.length < SHEETS.MembersCurrent.headers.length) updatedRow.push("");
+              updatedRow[idxMap["status"]] = "OUT";
+              updatedRow[idxMap["ts"]] = nowIso;
+              outRows.push(cleanRow_(updatedRow));
+            }
+          });
+      
+          const allRowsToSync = [...snapRows, ...outRows];
+      
+        // 6. CẬP NHẬT DỮ LIỆU
+        // playerTag nằm ở cột thứ 4 (index 1-based)
+        upsertRowsById_("MembersCurrent", 4, allRowsToSync);
   // 7. Xử lý MemberEvents (giữ nguyên logic cũ)
   const props = PropertiesService.getScriptProperties();
   const prevJson = props.getProperty("MEMBER_STATE_JSON");
@@ -699,17 +723,21 @@ function syncClanAndMembers_(cfg) {
 
     if (!prev[tag]) {
       // JOIN: Để trống old/new value cho sạch
-      eventRows.push([makeEventId("JOIN", tag, nowIso, "", ""), nowIso, cfg.clanTag, clanName, "JOIN", tag, name, role, "", ""]);
+      eventRows.push([makeEventId("JOIN", tag, nowIso, "", ""), nowIso, cfg.clanTag, clanName, "JOIN", tag, name, "", ""]);
     } else {
       if (prev[tag].name !== curr[tag].name) {
         // NAME_CHANGE: Lưu tên cũ và tên mới
-        eventRows.push([makeEventId("NAME_CHANGE", tag, nowIso, prev[tag].name, curr[tag].name), nowIso, cfg.clanTag, clanName, "NAME_CHANGE", tag, name, role, prev[tag].name, curr[tag].name]);
+        eventRows.push(
+          [makeEventId("NAME_CHANGE", tag, nowIso, prev[tag].name, curr[tag].name),
+           nowIso, cfg.clanTag, clanName, "NAME_CHANGE", tag, name, prev[tag].name, curr[tag].name]);
       }
       if (prev[tag].role !== curr[tag].role) {
         // ROLE_CHANGE: Lưu chức vụ cũ và mới
         const oldR = prev[tag].role, newR = curr[tag].role;
         const type = roleRank_(newR) > roleRank_(oldR) ? "PROMOTE" : roleRank_(newR) < roleRank_(oldR) ? "DEMOTE" : "ROLE_CHANGE";
-        eventRows.push([makeEventId(type, tag, nowIso, oldR, newR), nowIso, cfg.clanTag, clanName, type, tag, name, newR, oldR, newR]);
+        eventRows.push(
+          [makeEventId(type, tag, nowIso, oldR, newR), 
+           nowIso, cfg.clanTag, clanName, type, tag, name, oldR, newR]);
       }
     }
   });
@@ -719,7 +747,9 @@ function syncClanAndMembers_(cfg) {
       // LEAVE: Để trống old/new value cho sạch
       const name = prev[tag].name;
       const role = prev[tag].role;
-      eventRows.push([makeEventId("LEAVE", tag, nowIso, "", ""), nowIso, cfg.clanTag, clanName, "LEAVE", tag, name, role, "", ""]);
+      eventRows.push(
+        [makeEventId("LEAVE", tag, nowIso, "", ""),
+          nowIso, cfg.clanTag, clanName, "LEAVE", tag, name, "", ""]);
     }
   });
 
@@ -1342,7 +1372,7 @@ function computeWarStats_(clanTag, clanName) {
     a.totalReq += req;
 
     // split by type
-    if (type === "CWL") {
+    if (type === "CWL" || type === "CWL_SEASON") {
       a.cwl_joined += 1;
       a.cwl_done += done;
       a.cwl_req += req;
