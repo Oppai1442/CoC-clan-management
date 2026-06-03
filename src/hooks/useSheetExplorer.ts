@@ -55,7 +55,13 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
   const cursorRef = useRef(cursor);
   useEffect(() => { cursorRef.current = cursor; }, [cursor]);
 
-  const refresh = () => setRefreshKey(prev => prev + 1);
+  const refresh = () => {
+    setCursor(0);
+    setRows([]);
+    setHeaders([]);
+    setIsInitialLoading(true);
+    setRefreshKey(prev => prev + 1);
+  };
 
   // Sync selection to URL
   useEffect(() => {
@@ -166,11 +172,9 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
         // Normalize response: war-recommend returns 'picked' and 'bench' instead of 'rows'
         let dataRows = resp.rows || [];
         if (!resp.rows && (resp as any).picked) {
-            dataRows = (resp as any).picked;
-            // Optionally merge bench if you want to see everyone
-            if ((resp as any).bench) {
-                dataRows = [...dataRows, ...(resp as any).bench];
-            }
+            const picked = ((resp as any).picked || []).map((row: any) => ({ ...row, rosterStatus: 'picked' }));
+            const bench = ((resp as any).bench || []).map((row: any) => ({ ...row, rosterStatus: 'bench' }));
+            dataRows = [...picked, ...bench];
         }
 
         if (dataRows.length > 0) {
@@ -221,6 +225,9 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
     if (!selectedPath) return;
     setCursor(0);
     setRows([]);
+    setHeaders([]);
+    setIsInitialLoading(true);
+    setRefreshKey(prev => prev + 1);
   };
 
   const mutateRow = (idValue: string, field: string, newValue: any) => {

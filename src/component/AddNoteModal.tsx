@@ -4,6 +4,7 @@ import { addPlayerNote, deletePlayerNote } from '../lib/sheetApi';
 import { type UserProfile } from '../hooks/useAuth';
 import { format } from 'date-fns';
 import clsx from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 type Note = {
   message: string;
@@ -20,6 +21,7 @@ type Props = {
 };
 
 export function AddNoteModal({ baseUrl, user, target, onSuccess, onClose }: Props) {
+  const { t } = useTranslation();
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -62,14 +64,14 @@ export function AddNoteModal({ baseUrl, user, target, onSuccess, onClose }: Prop
       onSuccess(JSON.stringify(currentNotes), type);
       setMessage('');
     } catch (e: any) {
-      setError(e.message || 'Lỗi lưu ghi chú');
+      setError(e.message || t('notes.error.save'));
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (time: string, type: 'member' | 'admin') => {
-    if (!window.confirm('Bạn có chắc muốn xóa ghi chú này?')) return;
+    if (!window.confirm(t('notes.confirmDelete'))) return;
     setLoading(true);
     setError('');
     try {
@@ -85,7 +87,7 @@ export function AddNoteModal({ baseUrl, user, target, onSuccess, onClose }: Prop
       const filtered = currentNotes.filter(n => n.time !== time);
       onSuccess(JSON.stringify(filtered), type);
     } catch (e: any) {
-      setError(e.message || 'Lỗi xóa ghi chú');
+      setError(e.message || t('notes.error.delete'));
     } finally {
       setLoading(false);
     }
@@ -115,12 +117,12 @@ export function AddNoteModal({ baseUrl, user, target, onSuccess, onClose }: Prop
               <MessageSquare size={24} />
             </div>
             <h2 className="text-xl font-black uppercase text-yellow-400 tracking-widest drop-shadow-md" style={{ textShadow: "2px 2px 0px #000" }}>
-              QUẢN LÝ GHI CHÚ
+              {t('notes.title')}
             </h2>
           </div>
 
           <div className="mb-6 p-4 bg-[#1a110a] rounded-xl border-2 border-[#4e3b2a] shadow-inner shrink-0">
-            <div className="text-[10px] text-orange-200/40 uppercase font-black tracking-widest mb-1">Người chơi</div>
+            <div className="text-[10px] text-orange-200/40 uppercase font-black tracking-widest mb-1">{t('notes.player')}</div>
             <div className="font-black text-white text-lg leading-tight">{target.name}</div>
             <div className="text-xs text-orange-200/40 font-mono">{target.tag}</div>
           </div>
@@ -129,7 +131,7 @@ export function AddNoteModal({ baseUrl, user, target, onSuccess, onClose }: Prop
             {/* Member Notes Section */}
             <section className="space-y-3">
               <div className="flex items-center justify-between border-b border-orange-200/10 pb-1">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-blue-400">Ghi chú thành viên</h3>
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-blue-400">{t('notes.member')}</h3>
                 <span className="text-[10px] bg-blue-900/30 px-2 rounded-full border border-blue-500/30">{memberNotes.length}</span>
               </div>
               <div className="space-y-2">
@@ -149,7 +151,7 @@ export function AddNoteModal({ baseUrl, user, target, onSuccess, onClose }: Prop
                     )}
                   </div>
                 ))}
-                {memberNotes.length === 0 && <p className="text-center text-orange-200/20 text-[10px] uppercase py-2">Trống</p>}
+                {memberNotes.length === 0 && <p className="text-center text-orange-200/20 text-[10px] uppercase py-2">{t('notes.empty')}</p>}
               </div>
             </section>
 
@@ -157,7 +159,7 @@ export function AddNoteModal({ baseUrl, user, target, onSuccess, onClose }: Prop
             {isManagement && (
               <section className="space-y-3">
                 <div className="flex items-center justify-between border-b border-orange-200/10 pb-1">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-red-400">Ghi chú quản trị</h3>
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-red-400">{t('notes.admin')}</h3>
                   <span className="text-[10px] bg-red-900/30 px-2 rounded-full border border-red-500/30">{adminNotes.length}</span>
                 </div>
                 <div className="space-y-2">
@@ -176,7 +178,7 @@ export function AddNoteModal({ baseUrl, user, target, onSuccess, onClose }: Prop
                       </button>
                     </div>
                   ))}
-                  {adminNotes.length === 0 && <p className="text-center text-orange-200/20 text-[10px] uppercase py-2">Trống</p>}
+                  {adminNotes.length === 0 && <p className="text-center text-orange-200/20 text-[10px] uppercase py-2">{t('notes.empty')}</p>}
                 </div>
               </section>
             )}
@@ -187,7 +189,7 @@ export function AddNoteModal({ baseUrl, user, target, onSuccess, onClose }: Prop
               rows={2}
               value={message}
               onChange={e => setMessage(e.target.value)}
-              placeholder="Viết ghi chú mới..."
+              placeholder={t('notes.placeholder')}
               className="w-full p-3 bg-[#1a110a] border-2 border-[#4e3b2a] text-orange-50 rounded-xl focus:border-yellow-500 outline-none transition-all shadow-inner placeholder-orange-200/20 resize-none text-sm"
             />
 
@@ -201,14 +203,14 @@ export function AddNoteModal({ baseUrl, user, target, onSuccess, onClose }: Prop
               <button 
                 onClick={() => handleSave('member')}
                 disabled={loading || !message.trim() || !isSelf}
-                title={!isSelf ? "Chỉ chính người chơi mới có thể tự viết ghi chú member" : ""}
+                title={!isSelf ? t('notes.memberDenied') : ''}
                 className={clsx(
                   "py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white font-black rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all flex items-center justify-center gap-2 shadow-lg uppercase text-[10px]",
                   !isSelf && "grayscale"
                 )}
               >
                 {loading ? <RotateCw className="animate-spin" size={14} /> : <Save size={14} />}
-                Lưu Member Note
+                {t('notes.saveMember')}
               </button>
               
               <button 
@@ -220,7 +222,7 @@ export function AddNoteModal({ baseUrl, user, target, onSuccess, onClose }: Prop
                 )}
               >
                 <ShieldAlert size={14} />
-                Lưu Admin Note
+                {t('notes.saveAdmin')}
               </button>
             </div>
           </div>

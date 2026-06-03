@@ -3,6 +3,7 @@ import { Search, ShieldCheck, X, User, Key, RotateCw, ListFilter, RefreshCw, Sav
 import { searchPlayer, verifyPlayerToken, listCurrentMembers, forceSyncClan, addPlayerNote } from '../lib/sheetApi';
 import { type UserProfile } from '../hooks/useAuth';
 import clsx from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 type Props = {
   baseUrl: string;
@@ -17,6 +18,7 @@ type TourStep = {
 };
 
 export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
+  const { t } = useTranslation();
   const [step, setStep] = useState<'search' | 'verify'>('search');
   const [query, setQ] = useState('');
   const [results, setResults] = useState<any[]>([]);
@@ -44,14 +46,14 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
   };
 
   const tourSteps: TourStep[] = step === 'search' ? [
-    { target: 'search-input', content: 'Nhập tên hoặc Tag (#...) của bạn để tìm kiếm.', step: 1 },
-    { target: 'list-btn', content: 'Hoặc bấm vào đây để xem toàn bộ danh sách thành viên.', step: 2 },
-    { target: 'sync-btn', content: 'Nếu bạn mới vào Clan, bấm đây để cập nhật dữ liệu mới nhất.', step: 3 },
-    { target: 'search-btn', content: 'Bấm nút này để bắt đầu tìm kiếm.', step: 4 },
+    { target: 'search-input', content: t('tour.login.search.1'), step: 1 },
+    { target: 'list-btn', content: t('tour.login.search.2'), step: 2 },
+    { target: 'sync-btn', content: t('tour.login.search.3'), step: 3 },
+    { target: 'search-btn', content: t('tour.login.search.4'), step: 4 },
   ] : [
-    { target: 'token-input', content: 'Nhập mã API Token lấy từ Cài đặt trong Game của bạn.', step: 1 },
-    { target: 'yt-btn', content: 'Bấm vào đây để xem video hướng dẫn cách lấy mã API Token.', step: 2 },
-    { target: 'verify-btn', content: 'Cuối cùng bấm Xác thực để đăng nhập.', step: 3 },
+    { target: 'token-input', content: t('tour.login.verify.1'), step: 1 },
+    { target: 'yt-btn', content: t('tour.login.verify.2'), step: 2 },
+    { target: 'verify-btn', content: t('tour.login.verify.3'), step: 3 },
   ];
 
   const handleSearch = async () => {
@@ -62,7 +64,7 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
       const resp = await searchPlayer(baseUrl, query);
       setResults(resp.rows);
     } catch (e: any) {
-      setError(e.message || 'Lỗi tìm kiếm');
+      setError(e.message || t('auth.error.search'));
     } finally {
       setLoading(false);
     }
@@ -75,7 +77,7 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
       const resp = await listCurrentMembers(baseUrl);
       setResults(resp.rows);
     } catch (e: any) {
-      setError(e.message || 'Lỗi lấy danh sách');
+      setError(e.message || t('auth.error.list'));
     } finally {
       setLoading(false);
     }
@@ -88,7 +90,7 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
       await forceSyncClan(baseUrl);
       await handlePickList(); 
     } catch (e: any) {
-      setError('Không thể cập nhật dữ liệu mới');
+      setError(t('auth.error.sync'));
     } finally {
       setSyncing(false);
     }
@@ -109,10 +111,10 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
           token: token
         });
       } else {
-        setError('Token không chính xác. Hãy kiểm tra lại trong Cài đặt game.');
+        setError(t('auth.error.invalidToken'));
       }
     } catch (e: any) {
-      setError(e.message || 'Lỗi xác thực');
+      setError(e.message || t('auth.error.verify'));
     } finally {
       setLoading(false);
     }
@@ -135,7 +137,7 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
           <button 
             onClick={() => { setShowTour(true); setActiveTourIndex(0); }} 
             className="text-orange-200/30 hover:text-yellow-500 p-1 transition-colors"
-            title="Xem hướng dẫn"
+            title={t('tour.main.title')}
           >
             <HelpCircle size={20} />
           </button>
@@ -153,7 +155,7 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
               <ShieldCheck className="text-white drop-shadow-md" size={24} />
             </div>
             <h2 className="text-xl font-black uppercase text-yellow-400 tracking-widest drop-shadow-md" style={{ textShadow: "2px 2px 0px #000" }}>
-              {step === 'search' ? 'ĐĂNG NHẬP PLAYER' : 'XÁC THỰC TÀI KHOẢN'}
+              {step === 'search' ? t('auth.playerLogin') : t('auth.verifyAccount')}
             </h2>
           </div>
 
@@ -167,13 +169,13 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
                     value={query}
                     onChange={e => setQ(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                    placeholder="Tên hoặc Tag (#...)"
+                    placeholder={t('auth.searchPlaceholder')}
                     className="w-full pl-10 pr-4 py-3 bg-[#1a110a] border-2 border-[#4e3b2a] text-orange-50 rounded-xl focus:border-yellow-500 outline-none transition-all shadow-inner placeholder-orange-200/20"
                   />
                 </div>
                 <button 
                   onClick={handlePickList}
-                  title="Hiện toàn bộ danh sách"
+                  title={t('auth.listAll')}
                   className={clsx(
                     "px-4 bg-[#3d2e1e] hover:bg-[#4e3b2a] text-yellow-500 rounded-xl border-b-4 border-[#1a110a] active:border-b-0 active:translate-y-1 transition-all shadow-lg",
                     showTour && activeTourIndex === 1 && "ring-4 ring-yellow-500 ring-offset-4 ring-offset-[#2a1d12] z-50"
@@ -193,12 +195,12 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
                   )}
                 >
                   {loading ? <RotateCw className="animate-spin" size={18} /> : <Search size={18} />}
-                  TÌM KIẾM
+                  {t('auth.search')}
                 </button>
                 <button 
                   onClick={handleSyncLive}
                   disabled={syncing}
-                  title="Cập nhật mem mới gia nhập"
+                  title={t('auth.syncTitle')}
                   className={clsx(
                     "px-5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white rounded-xl border-b-4 border-green-800 active:border-b-0 active:translate-y-1 transition-all shadow-lg",
                     showTour && activeTourIndex === 2 && "ring-4 ring-yellow-500 ring-offset-4 ring-offset-[#2a1d12] z-50"
@@ -236,8 +238,8 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
                       </div>
                     </button>
                   ))}
-                  {results.length === 0 && !loading && !syncing && query && <p className="text-center text-[#998877] text-xs font-bold py-4 uppercase">Không tìm thấy ai!</p>}
-                  {syncing && <p className="text-center text-green-700 text-[10px] font-black py-4 animate-pulse uppercase tracking-tighter">ĐANG ĐỒNG BỘ...</p>}
+                  {results.length === 0 && !loading && !syncing && query && <p className="text-center text-[#998877] text-xs font-bold py-4 uppercase">{t('auth.noResults')}</p>}
+                  {syncing && <p className="text-center text-green-700 text-[10px] font-black py-4 animate-pulse uppercase tracking-tighter">{t('auth.syncing')}</p>}
                 </div>
               )}
             </div>
@@ -256,7 +258,7 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-black text-orange-200/60 uppercase tracking-widest flex items-center gap-2">
-                    <Key size={14} className="text-yellow-500" /> API TOKEN CỦA BẠN
+                    <Key size={14} className="text-yellow-500" /> {t('auth.tokenLabel')}
                   </label>
                   <a 
                     href="https://www.youtube.com/watch?v=b-ygM4Remwc" 
@@ -270,7 +272,7 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
                     <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
                       <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.016 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.016 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
                     </svg>
-                    Hướng dẫn
+                    {t('auth.tokenHelp')}
                   </a>
                 </div>
                 <div className={clsx("transition-all duration-300", showTour && activeTourIndex === 0 && "ring-4 ring-yellow-500 ring-offset-4 ring-offset-[#2a1d12] rounded-xl z-50")}>
@@ -280,12 +282,12 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
                     value={token}
                     onChange={e => setToken(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleVerify()}
-                    placeholder="Nhập mã token từ Cài đặt game"
+                    placeholder={t('auth.tokenPlaceholder')}
                     className="w-full px-4 py-3 bg-[#1a110a] border-2 border-[#4e3b2a] text-orange-50 rounded-xl focus:border-yellow-500 outline-none transition-all shadow-inner"
                   />
                 </div>
                 <p className="text-[10px] text-orange-200/30 leading-tight italic">
-                  * Vào Game → Cài đặt → Cài đặt khác → Mã API → Bấm "Hiển thị" để lấy mã.
+                  * {t('auth.tokenInstruction')}
                 </p>
               </div>
 
@@ -300,7 +302,7 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
                   onClick={() => setStep('search')}
                   className="flex-1 py-3 bg-[#3d2e1e] hover:bg-[#4e3b2a] text-orange-200/70 font-black rounded-xl border-b-4 border-[#1a110a] active:border-b-0 active:translate-y-1 transition-all uppercase text-sm shadow-lg"
                 >
-                  QUAY LẠI
+                  {t('auth.back')}
                 </button>
                 <button 
                   onClick={handleVerify}
@@ -311,7 +313,7 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
                   )}
                 >
                   {loading ? <RotateCw className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
-                  XÁC THỰC
+                  {t('auth.verify')}
                 </button>
               </div>
             </div>
@@ -327,7 +329,7 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
               
               <div className="flex items-start justify-between gap-2 relative z-10">
                 <div className="flex-1">
-                  <div className="text-[9px] font-black uppercase opacity-60 mb-0.5">Bước {tourSteps[activeTourIndex].step}/{tourSteps.length}</div>
+                  <div className="text-[9px] font-black uppercase opacity-60 mb-0.5">{t('tour.step')} {tourSteps[activeTourIndex].step}/{tourSteps.length}</div>
                   <div className="font-bold text-xs leading-tight">{tourSteps[activeTourIndex].content}</div>
                 </div>
                 <button onClick={closeTour} className="p-0.5 hover:bg-black/10 rounded transition-colors">
@@ -355,14 +357,14 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
                       onClick={() => setActiveTourIndex(prev => prev + 1)}
                       className="bg-black text-yellow-500 px-3 py-1 rounded-lg text-[10px] font-black uppercase hover:scale-105 active:scale-95 transition-all shadow-md"
                     >
-                      Tiếp tục
+                      {t('tour.next')}
                     </button>
                   ) : (
                     <button 
                       onClick={closeTour}
                       className="bg-green-700 text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase hover:scale-105 active:scale-95 transition-all shadow-md"
                     >
-                      Bắt đầu
+                      {t('tour.explore')}
                     </button>
                   )}
                 </div>

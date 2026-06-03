@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { SheetExplorer } from "./component/SheetExplorer";
 
 const BOOTSTRAP_URL = "https://script.google.com/macros/s/AKfycbzLJ4z-H40kfH1KX_OECnk4vay7Ardt46m_Hf23vMg3KUB1YEKcDuPJQAPL40c4P_je/exec";
 
 export default function App() {
+  const { t } = useTranslation();
   const [apiUrl, setApiUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export default function App() {
     return (
       <div className="h-screen w-full bg-[#2a2a2a] flex items-center justify-center">
         <div className="text-yellow-500 font-black animate-pulse uppercase tracking-widest">
-          Đang kết nối Server...
+          {t('app.connecting')}
         </div>
       </div>
     );
