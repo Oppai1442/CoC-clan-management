@@ -3,7 +3,7 @@ import { useSheetExplorer } from "../hooks/useSheetExplorer";
 import { useAuth } from "../hooks/useAuth";
 import { LoginModal } from "./LoginModal";
 import { AddNoteModal } from "./AddNoteModal";
-import { fetchEndpoint, fetchAccessStats } from "../lib/sheetApi";
+import { fetchEndpoint, fetchAccessStats, AVAILABLE_ENDPOINTS } from "../lib/sheetApi";
 import {
   Search,
   RotateCw,
@@ -75,7 +75,8 @@ const TECHNICAL_COLUMNS = new Set([
   "playerTag",
   "attackerTag",
   "defenderTag",
-  "sourceId"
+  "sourceId",
+  "confidenceWars"
 ]);
 
 const DATE_FIELDS = new Set([
@@ -231,6 +232,11 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     return f;
   }, [filters, activeSheetName, selectedWarKey]);
 
+  const isReplaceStrategy = useMemo(() => {
+    const activeEndpoint = AVAILABLE_ENDPOINTS.find(e => e.name === activeSheetName);
+    return activeEndpoint?.strategy === "replace";
+  }, [activeSheetName]);
+
   const {
     sheets,
     selected,
@@ -255,8 +261,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     sortDir: sortConfig?.direction,
     authTag: user?.tag,
     filters: sheetFilters,
-    limit: activeSheetName === "CWL Round Attacks" ? pageSize : undefined,
-    offset: activeSheetName === "CWL Round Attacks" ? (page - 1) * pageSize : undefined
+    limit: isReplaceStrategy ? pageSize : undefined,
+    offset: isReplaceStrategy ? (page - 1) * pageSize : undefined
   });
 
   useEffect(() => {
@@ -382,7 +388,9 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
         return val;
       }
       let n = numberFrom(val);
-      if (n > 100) {
+      if (n <= 1.0) {
+        n *= 100;
+      } else if (n > 100) {
         while (n > 100) {
           n /= 10;
         }
@@ -445,10 +453,10 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   }, [rows, sortConfig]);
 
   const shown = useMemo(() => {
-    if (activeSheetName === "CWL Round Attacks") return sortedRows;
+    if (isReplaceStrategy) return sortedRows;
     if (sortedRows.length > maxShow) return sortedRows.slice(sortedRows.length - maxShow);
     return sortedRows;
-  }, [sortedRows, maxShow, activeSheetName]);
+  }, [sortedRows, maxShow, isReplaceStrategy]);
 
   const getRowSelectionKey = (row: Record<string, any>, idx: number) => {
     const base =
@@ -1096,7 +1104,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
               </table>
             </div>
 
-            {activeSheetName === "CWL Round Attacks" && totalAfterFilter > 0 && (
+            {isReplaceStrategy && totalAfterFilter > 0 && (
               <div className="border-t-2 border-[#cbbda2] bg-[#fdfaf2] px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-[#5c4a37] font-semibold relative z-10">
                 <div className="flex items-center gap-2">
                   <span>Show</span>

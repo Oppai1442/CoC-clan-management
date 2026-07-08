@@ -47,8 +47,8 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 
 export const AVAILABLE_ENDPOINTS = [
   { name: "Clan Members", i18nKey: "endpoint.clan-members", path: "/api/v1/clan/members", strategy: "replace" },
-  { name: "Member Events", i18nKey: "endpoint.member-events", path: "/api/v1/member-events", strategy: "append" },
-  { name: "War History", i18nKey: "endpoint.war-history", path: "/api/v1/war/history", strategy: "append" },
+  { name: "Member Events", i18nKey: "endpoint.member-events", path: "/api/v1/member-events", strategy: "replace" },
+  { name: "War History", i18nKey: "endpoint.war-history", path: "/api/v1/war/history", strategy: "replace" },
   { name: "War Members", i18nKey: "endpoint.war-members", path: "/api/v1/war/members", strategy: "append" },
   { name: "War Attacks", i18nKey: "endpoint.war-attacks", path: "/api/v1/war/attacks", strategy: "append" },
   { name: "War Stats (Current)", i18nKey: "endpoint.war-stats-current", path: "/api/v1/war/stats-current", strategy: "replace" },
@@ -58,7 +58,7 @@ export const AVAILABLE_ENDPOINTS = [
   { name: "CWL Round Members", i18nKey: "endpoint.cwl-round-members", path: "/api/v1/cwl/round-members", strategy: "append" },
   { name: "CWL Round Attacks", i18nKey: "endpoint.cwl-round-attacks", path: "/api/v1/cwl/round-attacks", strategy: "replace" },
   { name: "Raid Seasons", i18nKey: "endpoint.raid-seasons", path: "/api/v1/raid/seasons", strategy: "append" },
-  { name: "Raid Members", i18nKey: "endpoint.raid-members", path: "/api/v1/raid/members", strategy: "append" },
+  { name: "Raid Members", i18nKey: "endpoint.raid-members", path: "/api/v1/raid/members", strategy: "replace" },
 ] as const;
 
 export async function fetchEndpoint<T = any>(

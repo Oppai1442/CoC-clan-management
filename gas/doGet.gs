@@ -104,7 +104,7 @@ function handleMemberEvents_(req) {
   // Sheet: MemberEvents
   // Default sort: ts desc
   const raw = readSheetObjects_("MemberEvents", req, {
-    strategy: "append",
+    strategy: "replace",
     defaultSortBy: "ts",
     defaultSortDir: "desc"
   });
@@ -125,7 +125,7 @@ function handleMemberEvents_(req) {
 function handleWarHistory_(req) {
   // Sheet: WarHistory (append, history)
   const raw = readSheetObjects_("WarHistory", req, {
-    strategy: "append",
+    strategy: "replace",
     defaultSortBy: "endTime",
     defaultSortDir: "desc"
   });
