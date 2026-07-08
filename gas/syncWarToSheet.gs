@@ -604,12 +604,12 @@ function syncClanAndMembers_(cfg) {
   const clan = cocGet_(cfg, `/clans/${cfg.clanTagEnc}`);
   const clanName = String(clan.name || "");
 
-  overwriteSingleRow_("ClanCurrent", [
+  overwriteSingleRow_("ClanCurrent", cleanRow_([
     nowIso, cfg.clanTag, clanName,
     clan.clanLevel || "", clan.clanPoints || "", clan.clanVersusPoints || "",
     clan.members || "", clan.type || "", clan.warFrequency || "",
     clan.warWinStreak || "", clan.warWins || "", clan.warTies || "", clan.warLosses || ""
-  ].map(String));
+  ]));
 
   // 2. Lấy danh sách thành viên hiện tại từ API
   const membersApi = cocGet_(cfg, `/clans/${cfg.clanTagEnc}/members`, { limit: 50 });
@@ -1087,19 +1087,19 @@ function syncWarCWLSeason_(cfg) {
     props.setProperty(finalKey, finalSeen);
 
     // CWLSeasonHistory: 1 row/seasonKey
-    upsertRowsById_("CWLSeasonHistory", 1, [[
+    upsertRowsById_("CWLSeasonHistory", 1, [cleanRow_([
       seasonKey,
       firstSeen,
       finalSeen,
       cfg.clanTag,
       clanName,
       season,
-      String(roundsTotal),
-      String(roundsEnded),
-      String(roundsWon),
-      String(roundsLost),
-      String(roundsDraw)
-    ]]);
+      roundsTotal,
+      roundsEnded,
+      roundsWon,
+      roundsLost,
+      roundsDraw
+    ])]);
 
     // Recompute WarStats after season ends (and during season too, nếu cậu thích)
     computeWarStats_(cfg.clanTag, clanName);
@@ -1124,12 +1124,11 @@ function commitCwlRound_(cfg, seasonKey, season, roundIndex, warTag, w, clanName
 
   const result = warResult_(clanStars, oppStars, clanDes, oppDes);
 
-  // Round row (upsert by roundKey)
-  upsertRowsById_("CWLRounds", 1, [[
+  upsertRowsById_("CWLRounds", 1, [cleanRow_([
     roundKey,
     seasonKey,
     season,
-    String(roundIndex),
+    roundIndex,
     warTag,
     nowIso,
     w.state || "",
@@ -1138,14 +1137,14 @@ function commitCwlRound_(cfg, seasonKey, season, roundIndex, warTag, w, clanName
     w.teamSize || "",
     cfg.clanTag,
     clanName,
-    String(clanStars),
-    String(oppStars),
-    String(clanDes),
-    String(oppDes),
-    String(opp.tag || ""),
-    String(opp.name || ""),
+    clanStars,
+    oppStars,
+    clanDes,
+    oppDes,
+    opp.tag || "",
+    opp.name || "",
     result
-  ].map(String)]);
+  ])]);
 
   // Members (upsert per round per member)
   const memberRows = (clan.members || []).map(m => {
@@ -1158,22 +1157,22 @@ function commitCwlRound_(cfg, seasonKey, season, roundIndex, warTag, w, clanName
     const missing = Math.max(0, req - done);
 
     const roundMemberId = md5Hex_(`${roundKey}|${m.tag || ""}`);
-    return [
+    return cleanRow_([
       roundMemberId,
       roundKey,
       seasonKey,
       season,
-      String(roundIndex),
+      roundIndex,
       nowIso,
       m.tag || "",
       m.name || "",
       m.mapPosition || "",
-      String(done),
-      String(req),
-      String(starsTotal),
-      String(bestDes),
-      String(missing)
-    ].map(String);
+      done,
+      req,
+      starsTotal,
+      bestDes,
+      missing
+    ]);
   });
   upsertRowsById_("CWLRoundMembers", 1, memberRows);
 
@@ -1182,12 +1181,12 @@ function commitCwlRound_(cfg, seasonKey, season, roundIndex, warTag, w, clanName
   (clan.members || []).forEach(m => {
     (m.attacks || []).forEach(a => {
       const attackId = md5Hex_(`${roundKey}|${m.tag || ""}|${a.order}`);
-      attackRows.push([
+      attackRows.push(cleanRow_([
         attackId,
         roundKey,
         seasonKey,
         season,
-        String(roundIndex),
+        roundIndex,
         warTag,
         m.tag || "",
         m.name || "",
@@ -1195,7 +1194,7 @@ function commitCwlRound_(cfg, seasonKey, season, roundIndex, warTag, w, clanName
         a.stars ?? "",
         a.destructionPercentage ?? "",
         a.order ?? ""
-      ].map(String));
+      ]));
     });
   });
   appendUniqueRows_("CWLRoundAttacks", 1, attackRows);
@@ -1259,7 +1258,7 @@ function commitCwlSeasonAggregate_(cfg, seasonKey, season, clanName) {
     const missing = Math.max(0, a.req - a.done);
     const warMemberId = md5Hex_(`${seasonKey}|${a.tag}`);
 
-    return [
+    return cleanRow_([
       warMemberId,
       nowIso,
       seasonKey,          // warKey
@@ -1270,12 +1269,12 @@ function commitCwlSeasonAggregate_(cfg, seasonKey, season, clanName) {
       a.tag,
       a.name,
       "",                 // mapPosition (season aggregate => bỏ trống)
-      String(a.done),
-      String(a.req),
-      String(a.stars),
-      String(a.best),
-      String(missing)
-    ].map(String);
+      a.done,
+      a.req,
+      a.stars,
+      a.best,
+      missing
+    ]);
   });
 
   upsertRowsById_("WarMembers", 1, warMemberRows);
@@ -1395,7 +1394,7 @@ function computeWarStats_(clanTag, clanName) {
       const cwCompletion = a.cw_req ? (a.cw_done / a.cw_req * 100) : 0;
       const cwlCompletion = a.cwl_req ? (a.cwl_done / a.cwl_req * 100) : 0;
 
-      return [
+      return cleanRow_([
         nowIso,
         clanTag,
         clanName,
@@ -1407,10 +1406,10 @@ function computeWarStats_(clanTag, clanName) {
         a.completed,
         a.dropped,
         a.incomplete,
-        participationRate.toFixed(1),
-        completionRate.toFixed(1),
-        dropRate.toFixed(1),
-        incompleteRate.toFixed(1),
+        Number(participationRate.toFixed(1)),
+        Number(completionRate.toFixed(1)),
+        Number(dropRate.toFixed(1)),
+        Number(incompleteRate.toFixed(1)),
 
         a.totalDone,
         a.totalReq,
@@ -1418,13 +1417,13 @@ function computeWarStats_(clanTag, clanName) {
         a.cw_joined,
         a.cw_done,
         a.cw_req,
-        cwCompletion.toFixed(1),
+        Number(cwCompletion.toFixed(1)),
 
         a.cwl_joined,
         a.cwl_done,
         a.cwl_req,
-        cwlCompletion.toFixed(1)
-      ].map(String);
+        Number(cwlCompletion.toFixed(1))
+      ]);
     });
 
   // playerTag nằm ở cột thứ 4
@@ -1477,7 +1476,7 @@ function syncRaidSeasons_(cfg) {
   items.forEach(season => {
     const raidId = md5Hex_(`${cfg.clanTag}|${season.startTime || ""}|${season.endTime || ""}`);
 
-    raidRows.push([
+    raidRows.push(cleanRow_([
       raidId,
       nowIso,
       cfg.clanTag,
@@ -1490,11 +1489,11 @@ function syncRaidSeasons_(cfg) {
       season.enemyDistrictsDestroyed || "",
       season.offensiveReward || "",
       season.defensiveReward || ""
-    ].map(String));
+    ]));
 
     (season.members || []).forEach(m => {
       const raidMemberId = md5Hex_(`${raidId}|${m.tag}`);
-      memberRows.push([
+      memberRows.push(cleanRow_([
         raidMemberId,
         raidId,
         m.tag || "",
@@ -1502,7 +1501,7 @@ function syncRaidSeasons_(cfg) {
         m.attacks || "",
         m.attackLimit || "",
         m.capitalResourcesLooted || ""
-      ].map(String));
+      ]));
     });
   });
 

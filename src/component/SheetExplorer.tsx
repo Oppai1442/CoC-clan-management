@@ -68,7 +68,14 @@ const TECHNICAL_COLUMNS = new Set([
   "roundKey",
   "roundMemberId",
   "raidId",
-  "raidMemberId"
+  "raidMemberId",
+  "warTag",
+  "clanTag",
+  "opponentTag",
+  "playerTag",
+  "attackerTag",
+  "defenderTag",
+  "sourceId"
 ]);
 
 const DATE_FIELDS = new Set([
@@ -135,6 +142,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [tempFilters, setTempFilters] = useState<Record<string, string>>({});
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -230,6 +239,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     strategy,
     headers,
     rows,
+    totalAfterFilter,
     lastRow,
     loading,
     isInitialLoading,
@@ -244,7 +254,9 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     sortBy: sortConfig?.key,
     sortDir: sortConfig?.direction,
     authTag: user?.tag,
-    filters: sheetFilters
+    filters: sheetFilters,
+    limit: activeSheetName === "CWL Round Attacks" ? pageSize : undefined,
+    offset: activeSheetName === "CWL Round Attacks" ? (page - 1) * pageSize : undefined
   });
 
   useEffect(() => {
@@ -255,6 +267,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     setSelectedRowId(null);
     setSelectedRowData(null);
     setIsColumnsOpen(false);
+    setPage(1);
   }, [activeSheetName]);
 
   useEffect(() => {
@@ -364,12 +377,20 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
       }
     }
 
-    const display = formatRawForDisplay(val, columnKey);
-
-    if (isPercentColumn(columnKey) && typeof display === "string" && display && !display.includes("%")) {
-      const n = numberFrom(display);
-      if (Number.isFinite(n)) return `${formatNum(n)}%`;
+    if (isPercentColumn(columnKey)) {
+      if (typeof val === "string" && val.includes("%")) {
+        return val;
+      }
+      let n = numberFrom(val);
+      if (n > 100) {
+        while (n > 100) {
+          n /= 10;
+        }
+      }
+      return `${formatNum(n)}%`;
     }
+
+    const display = formatRawForDisplay(val, columnKey);
 
     if (isChipColumn(columnKey)) {
       const raw = String(val).toLowerCase();
@@ -396,10 +417,38 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     });
   };
 
+  const sortedRows = useMemo(() => {
+    if (!sortConfig) return rows;
+    const { key, direction } = sortConfig;
+    return [...rows].sort((a, b) => {
+      const valA = a[key];
+      const valB = b[key];
+      
+      const clean = (v: any) => {
+        if (v === null || v === undefined) return "";
+        return String(v).trim().toLowerCase();
+      };
+      
+      const strA = clean(valA);
+      const strB = clean(valB);
+      
+      const numA = Number(strA.replace(/%/g, ""));
+      const numB = Number(strB.replace(/%/g, ""));
+      if (strA && strB && Number.isFinite(numA) && Number.isFinite(numB)) {
+        return direction === "asc" ? numA - numB : numB - numA;
+      }
+      
+      return direction === "asc" 
+        ? strA.localeCompare(strB, undefined, { numeric: true }) 
+        : strB.localeCompare(strA, undefined, { numeric: true });
+    });
+  }, [rows, sortConfig]);
+
   const shown = useMemo(() => {
-    if (rows.length > maxShow) return rows.slice(rows.length - maxShow);
-    return rows;
-  }, [rows, maxShow]);
+    if (activeSheetName === "CWL Round Attacks") return sortedRows;
+    if (sortedRows.length > maxShow) return sortedRows.slice(sortedRows.length - maxShow);
+    return sortedRows;
+  }, [sortedRows, maxShow, activeSheetName]);
 
   const getRowSelectionKey = (row: Record<string, any>, idx: number) => {
     const base =
@@ -1046,6 +1095,66 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                 </tbody>
               </table>
             </div>
+
+            {activeSheetName === "CWL Round Attacks" && totalAfterFilter > 0 && (
+              <div className="border-t-2 border-[#cbbda2] bg-[#fdfaf2] px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-[#5c4a37] font-semibold relative z-10">
+                <div className="flex items-center gap-2">
+                  <span>Show</span>
+                  <select
+                    value={pageSize}
+                    onChange={e => {
+                      setPageSize(Number(e.target.value));
+                      setPage(1);
+                    }}
+                    className="bg-[#f5ebd6] border border-[#cbbda2] rounded px-1 py-0.5 font-bold focus:outline-none"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={200}>200</option>
+                  </select>
+                  <span>rows per page</span>
+                </div>
+                
+                <div className="text-[#806f5c]">
+                  Showing {Math.min(totalAfterFilter, (page - 1) * pageSize + 1)}-{Math.min(totalAfterFilter, page * pageSize)} of {totalAfterFilter} rows
+                </div>
+
+                <div className="flex items-center gap-1 select-none">
+                  <button
+                    disabled={page === 1}
+                    onClick={() => setPage(1)}
+                    className="p-1 px-2 rounded bg-[#f5ebd6] hover:bg-[#ebdcc0] border border-[#cbbda2] disabled:opacity-40 disabled:pointer-events-none font-bold text-[10px]"
+                  >
+                    &lt;&lt;
+                  </button>
+                  <button
+                    disabled={page === 1}
+                    onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                    className="p-1 px-2 rounded bg-[#f5ebd6] hover:bg-[#ebdcc0] border border-[#cbbda2] disabled:opacity-40 disabled:pointer-events-none font-bold text-[10px]"
+                  >
+                    &lt;
+                  </button>
+                  <span className="px-3 font-bold">
+                    Page {page} of {Math.max(1, Math.ceil(totalAfterFilter / pageSize))}
+                  </span>
+                  <button
+                    disabled={page * pageSize >= totalAfterFilter}
+                    onClick={() => setPage(prev => prev + 1)}
+                    className="p-1 px-2 rounded bg-[#f5ebd6] hover:bg-[#ebdcc0] border border-[#cbbda2] disabled:opacity-40 disabled:pointer-events-none font-bold text-[10px]"
+                  >
+                    &gt;
+                  </button>
+                  <button
+                    disabled={page * pageSize >= totalAfterFilter}
+                    onClick={() => setPage(Math.max(1, Math.ceil(totalAfterFilter / pageSize)))}
+                    className="p-1 px-2 rounded bg-[#f5ebd6] hover:bg-[#ebdcc0] border border-[#cbbda2] disabled:opacity-40 disabled:pointer-events-none font-bold text-[10px]"
+                  >
+                    &gt;&gt;
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="border-t-2 border-[#cbbda2] bg-[#e6d5b8] px-4 py-2 text-[8px] lg:text-[10px] text-[#776655] flex justify-between items-center font-bold uppercase relative z-10">
               <span className="flex items-center gap-1"><Database size={10} /> {t("status.source")}</span>

@@ -14,6 +14,8 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
   sortDir?: "asc" | "desc";
   filters?: Record<string, string>;
   authTag?: string;
+  offset?: number;
+  limit?: number;
 } = {}) {
   // Helper to convert path to slug and vice versa
   const getSlug = (p: string) => p.replace('/api/v1/', '').replace(/\//g, '-');
@@ -40,6 +42,7 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
   // Data state
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<Record<string, any>[]>([]);
+  const [totalAfterFilter, setTotalAfterFilter] = useState<number>(0);
   
   // Current active cursor
   const [cursor, setCursor] = useState<number>(0);
@@ -150,7 +153,7 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
 
         const currentCursor = isFirstFetch ? 0 : cursorRef.current;
         
-        const hasFilters = options.q || options.sortBy || (options.filters && Object.keys(options.filters).length > 0);
+        const hasFilters = options.q || options.sortBy || (options.filters && Object.keys(options.filters).length > 0) || options.offset !== undefined;
         const effectiveStrategy = hasFilters ? "replace" : currentStrategy;
 
         const resp = await fetchEndpoint(
@@ -164,7 +167,8 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
             sortDir: options.sortDir,
             filters: options.filters,
             authTag: options.authTag,
-            limit: 500
+            limit: options.limit !== undefined ? options.limit : 500,
+            offset: options.offset
           },
           ctrl.signal
         );
@@ -185,6 +189,7 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
         if (effectiveStrategy === "replace") {
           if (!isActive) return;
           setRows(dataRows);
+          setTotalAfterFilter(resp.totalAfterFilter !== undefined ? resp.totalAfterFilter : dataRows.length);
           if (resp.nextCursor) {
              setCursor(resp.nextCursor);
           }
@@ -193,7 +198,7 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
           if (!isActive) return;
           if (dataRows.length > 0) {
              setRows(prev => [...prev, ...dataRows]);
-             
+             setTotalAfterFilter(prev => prev + dataRows.length);
              if (resp.nextCursor && resp.nextCursor > cursorRef.current) {
                  setCursor(resp.nextCursor);
              }
@@ -219,7 +224,7 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
       ctrl.abort();
       if (timer) window.clearTimeout(timer);
     };
-  }, [baseUrl, selectedPath, pollMs, selectedMeta, options.q, options.sortBy, options.sortDir, options.filters, options.authTag, refreshKey]);
+  }, [baseUrl, selectedPath, pollMs, selectedMeta, options.q, options.sortBy, options.sortDir, options.filters, options.authTag, options.offset, options.limit, refreshKey]);
 
   const resetCursor = () => {
     if (!selectedPath) return;
@@ -256,6 +261,7 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
     strategy,
     headers,
     rows,
+    totalAfterFilter,
     lastRow: cursor,
     loading,
     isInitialLoading,

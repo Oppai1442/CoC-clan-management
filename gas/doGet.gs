@@ -140,10 +140,10 @@ function handleWarHistory_(req) {
     endTime: r.endTime,
     teamSize: r.teamSize,
     attacksPerMember: r.attacksPerMember,
-    clanStars: r.clanStars,
-    opponentStars: r.opponentStars,
-    clanDestruction: r.clanDestruction,
-    opponentDestruction: r.opponentDestruction,
+    clanStars: num_(r.clanStars),
+    opponentStars: num_(r.oppStars),
+    clanDestruction: num_(r.clanDestruction),
+    opponentDestruction: num_(r.oppDestruction),
     result: r.result
   }));
 
@@ -732,7 +732,6 @@ function handleCwlSeasonHistory_(req) {
     tsFinal: r.tsFinal,
     clanTag: r.clanTag,
     clanName: r.clanName,
-    clanDisplay: clanDisplay_(r.clanName, r.clanTag),
     season: r.season,
     roundsTotal: num_(r.roundsTotal),
     roundsEnded: num_(r.roundsEnded),
@@ -776,10 +775,8 @@ function handleCwlRounds_(req) {
     teamSize: num_(r.teamSize),
     clanTag: r.clanTag,
     clanName: r.clanName,
-    clanDisplay: clanDisplay_(r.clanName, r.clanTag),
     opponentTag: r.opponentTag,
     opponentName: r.opponentName,
-    opponentDisplay: clanDisplay_(r.opponentName, r.opponentTag),
     clanStars: num_(r.clanStars),
     oppStars: num_(r.oppStars),
     clanDestruction: num_(r.clanDestruction),
@@ -833,7 +830,7 @@ function handleCwlRoundMembers_(req) {
 
 function handleCwlRoundAttacks_(req) {
   const raw = readSheetObjects_("CWLRoundAttacks", req, {
-    strategy: "append",
+    strategy: "replace",
     defaultSortBy: "roundIndex",
     defaultSortDir: "desc"
   });
@@ -873,6 +870,9 @@ function handleRaidSeasons_(req) {
   });
 
   const rows = raw.rows.map(r => ({
+    raidId: r.raidId,
+    startTime: r.startTime,
+    endTime: r.endTime,
     capitalTotalLoot: num_(r.capitalTotalLoot),
     raidsCompleted: num_(r.raidsCompleted),
     totalAttacks: num_(r.totalAttacks),
@@ -892,25 +892,64 @@ function handleRaidSeasons_(req) {
 }
 
 function handleRaidMembers_(req) {
-  const raw = readSheetObjects_("RaidMembers", req, {
-    strategy: "append",
-    defaultSortBy: "raidId",
-    defaultSortDir: "desc"
+  const members = readAllSheetObjects_("MembersCurrent");
+  const currentTags = new Set();
+  members.forEach(m => {
+    const tag = String(m.playerTag || "").trim();
+    const status = String(getValCI_(m, "status") || "IN").toUpperCase();
+    if (tag && status === "IN") {
+      currentTags.add(tag);
+    }
   });
 
-  const rows = raw.rows.map(r => ({
+  const allRaid = readAllSheetObjects_("RaidMembers");
+  let rows = allRaid.filter(r => {
+    const tag = String(r.playerTag || "").trim();
+    return currentTags.has(tag);
+  });
+
+  rows = rows.map(r => ({
+    raidMemberId: r.raidMemberId,
+    raidId: r.raidId,
     playerTag: r.playerTag,
     name: r.name,
     attacks: num_(r.attacks),
     capitalResourcesLooted: num_(r.capitalResourcesLooted)
   }));
 
+  const q = String(req.params.q || "").trim();
+  const filtersRaw = String(req.params.filters || "").trim();
+  const filters = filtersRaw ? safeJsonParse_(filtersRaw) : null;
+  const sortBy = String(req.params.sortBy || "raidId").trim();
+  const sortDir = (String(req.params.sortDir || "desc").toLowerCase() === "asc") ? "asc" : "desc";
+  const limit = clampInt_(req.params.limit, 500, 0, 20000);
+  const offset = clampInt_(req.params.offset, 0, 0, 10000000);
+
+  if (filters && typeof filters === "object") {
+    rows = rows.filter(row => {
+      return Object.keys(filters).every(col => matchFilterExpr_(getValCI_(row, col), String(filters[col])));
+    });
+  }
+
+  if (q) {
+    const qq = q.toLowerCase();
+    rows = rows.filter(row => JSON.stringify(row).toLowerCase().includes(qq));
+  }
+
+  if (sortBy) {
+    rows.sort((a, b) => compareSmart_(getValCI_(a, sortBy), getValCI_(b, sortBy), sortDir));
+  }
+
+  const totalAfterFilter = rows.length;
+
+  if (offset > 0) rows = rows.slice(offset);
+  if (limit > 0) rows = rows.slice(0, limit);
+
   return jsonOut_({
     ok: true,
     ts: new Date().toISOString(),
     resource: "raid-members",
-    nextCursor: raw.nextCursor,
-    totalAfterFilter: raw.totalAfterFilter,
+    totalAfterFilter,
     rows
   });
 }

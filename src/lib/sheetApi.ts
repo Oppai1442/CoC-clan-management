@@ -56,7 +56,7 @@ export const AVAILABLE_ENDPOINTS = [
   { name: "CWL Season History", i18nKey: "endpoint.cwl-season-history", path: "/api/v1/cwl/season-history", strategy: "replace" },
   { name: "CWL Rounds", i18nKey: "endpoint.cwl-rounds", path: "/api/v1/cwl/rounds", strategy: "append" },
   { name: "CWL Round Members", i18nKey: "endpoint.cwl-round-members", path: "/api/v1/cwl/round-members", strategy: "append" },
-  { name: "CWL Round Attacks", i18nKey: "endpoint.cwl-round-attacks", path: "/api/v1/cwl/round-attacks", strategy: "append" },
+  { name: "CWL Round Attacks", i18nKey: "endpoint.cwl-round-attacks", path: "/api/v1/cwl/round-attacks", strategy: "replace" },
   { name: "Raid Seasons", i18nKey: "endpoint.raid-seasons", path: "/api/v1/raid/seasons", strategy: "append" },
   { name: "Raid Members", i18nKey: "endpoint.raid-members", path: "/api/v1/raid/members", strategy: "append" },
 ] as const;
