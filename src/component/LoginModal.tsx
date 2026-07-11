@@ -108,7 +108,7 @@ export function LoginModal({ baseUrl, onSuccess, onClose }: Props) {
           name: selectedPlayer.name,
           role: selectedPlayer.role || 'N/A',
           th: selectedPlayer.th || 'N/A',
-          token: token
+          token: resp.token || token
         });
       } else {
         setError(t('auth.error.invalidToken'));

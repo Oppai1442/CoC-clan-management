@@ -114,7 +114,7 @@ export async function searchPlayer(baseUrl: string, q: string) {
 
 export async function verifyPlayerToken(baseUrl: string, tag: string, token: string) {
   const url = buildUrl(baseUrl, { path: "/api/v1/player/verify", tag, token });
-  return fetchJson<{ ok: true, status: "ok" | "invalid" }>(url);
+  return fetchJson<{ ok: true, status: "ok" | "invalid", token?: string }>(url);
 }
 
 

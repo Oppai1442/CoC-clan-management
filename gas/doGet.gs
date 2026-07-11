@@ -1384,25 +1384,88 @@ function handlePlayerVerify_(req) {
   const token = String(req.params.token || "").trim();
   if (!tag || !token) return jsonOut_({ ok: false, error: "Missing tag or token" });
 
-  const members = readAllSheetObjects_("MembersCurrent");
-  const player = members.find(m => {
-    const playerTag = String(m.playerTag || "").trim();
-    return playerTag.toLowerCase() === tag.toLowerCase();
-  });
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("MembersCurrent");
+  if (!sh) return jsonOut_({ ok: false, error: "Sheet MembersCurrent not found" });
 
-  if (!player) {
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  const idxMap = {};
+  headers.forEach((h, i) => idxMap[h] = i);
+
+  const tagIdx = idxMap["playerTag"];
+  const tokenIdx = idxMap["token"];
+  const statusIdx = idxMap["status"];
+
+  if (tagIdx === undefined || tokenIdx === undefined) {
+    return jsonOut_({ ok: false, error: "Missing playerTag or token columns in sheet" });
+  }
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return jsonOut_({ ok: false, error: "No players in members list" });
+
+  const values = sh.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  let playerRowIdx = -1;
+  let playerRowData = null;
+
+  for (let i = 0; i < values.length; i++) {
+    const pTag = String(values[i][tagIdx] || "").trim();
+    if (pTag.toLowerCase() === tag.toLowerCase()) {
+      playerRowIdx = i + 2;
+      playerRowData = values[i];
+      break;
+    }
+  }
+
+  if (playerRowIdx === -1 || !playerRowData) {
     return jsonOut_({ ok: false, error: "Player not found in clan members list" });
   }
 
-  const sheetToken = String(getValCI_(player, "token") || "").trim();
-  if (!sheetToken) {
-    return jsonOut_({ ok: false, error: "Player has no login token configured in sheet" });
+  const status = String(playerRowData[statusIdx] || "IN").toUpperCase();
+  if (status !== "IN") {
+    return jsonOut_({ ok: false, error: "Player has left the clan" });
   }
 
-  if (sheetToken === token) {
-    return jsonOut_({ ok: true, status: "ok" });
-  } else {
-    return jsonOut_({ ok: true, status: "invalid" });
+  const existingSessionToken = String(playerRowData[tokenIdx] || "").trim();
+
+  // 1. If the token matches the session token in the sheet, it's a valid session token (auto login)
+  if (existingSessionToken && existingSessionToken === token) {
+    return jsonOut_({ ok: true, status: "ok", token: token });
+  }
+
+  // 2. Otherwise, treat it as a CoC API token (one-time token) and verify against CoC API
+  const cfg = getCfg_();
+  const tagEnc = encodeURIComponent(tag.startsWith("#") ? tag : "#" + tag);
+  const url = cfg.baseUrl.replace(/\/$/, "") + "/players/" + tagEnc + "/verifytoken";
+
+  try {
+    const resp = UrlFetchApp.fetch(url, {
+      method: "post",
+      headers: {
+        "Authorization": "Bearer " + cfg.token,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      payload: JSON.stringify({ token: token }),
+      muteHttpExceptions: true
+    });
+
+    const code = resp.getResponseCode();
+    const result = JSON.parse(resp.getContentText());
+
+    if (code >= 200 && code < 300) {
+      if (result.status === "ok") {
+        // CoC API token verified! Generate a new session token, save to sheet, and return it.
+        const newSessionToken = md5Hex_(`${tag}|${Date.now()}|${Math.random()}`);
+        sh.getRange(playerRowIdx, tokenIdx + 1).setValue(newSessionToken);
+        return jsonOut_({ ok: true, status: "ok", token: newSessionToken });
+      } else {
+        return jsonOut_({ ok: true, status: "invalid" });
+      }
+    } else {
+      return jsonOut_({ ok: false, error: result.reason || result.message || "Verify failed", code: code });
+    }
+  } catch (e) {
+    return jsonOut_({ ok: false, error: String(e) });
   }
 }
 
