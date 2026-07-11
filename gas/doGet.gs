@@ -932,8 +932,15 @@ function handleRaidMembers_(req) {
   }
 
   if (q) {
-    const qq = q.toLowerCase();
-    rows = rows.filter(row => JSON.stringify(row).toLowerCase().includes(qq));
+    const qq = normalizeSearchStr_(q).trim();
+    if (qq) {
+      rows = rows.filter(row => {
+        return Object.values(row).some(val => {
+          if (val === null || val === undefined) return false;
+          return normalizeSearchStr_(val).includes(qq);
+        });
+      });
+    }
   }
 
   if (sortBy) {
@@ -1036,8 +1043,15 @@ function readSheetObjects_(sheetName, req, opt) {
 
   // 2) Global search (Xử lý tìm kiếm ở Server)
   if (q) {
-    const qq = q.toLowerCase();
-    rows = rows.filter(row => JSON.stringify(row).toLowerCase().includes(qq));
+    const qq = normalizeSearchStr_(q).trim();
+    if (qq) {
+      rows = rows.filter(row => {
+        return Object.values(row).some(val => {
+          if (val === null || val === undefined) return false;
+          return normalizeSearchStr_(val).includes(qq);
+        });
+      });
+    }
   }
 
   // 3) Sorting
@@ -1340,6 +1354,7 @@ function handlePlayerSearch_(req) {
     return String(str || "")
       .toLowerCase()
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/đ/g, "d")
       .replace(/[^a-z0-9]/g, "");
   };
 
@@ -1347,6 +1362,8 @@ function handlePlayerSearch_(req) {
   const members = readAllSheetObjects_("MembersCurrent");
 
   const filtered = members.filter(m => {
+    const status = String(getValCI_(m, "status") || "IN").toUpperCase();
+    if (status !== "IN") return false;
     const name = String(m.name || "");
     const tag = String(m.playerTag || "").toLowerCase();
     if (tag === q || tag === "#" + q) return true;
@@ -1367,43 +1384,41 @@ function handlePlayerVerify_(req) {
   const token = String(req.params.token || "").trim();
   if (!tag || !token) return jsonOut_({ ok: false, error: "Missing tag or token" });
 
-  const cfg = getCfg_();
-  const tagEnc = encodeURIComponent(tag.startsWith("#") ? tag : "#" + tag);
-  const url = cfg.baseUrl.replace(/\/$/, "") + "/players/" + tagEnc + "/verifytoken";
+  const members = readAllSheetObjects_("MembersCurrent");
+  const player = members.find(m => {
+    const playerTag = String(m.playerTag || "").trim();
+    return playerTag.toLowerCase() === tag.toLowerCase();
+  });
 
-  try {
-    const resp = UrlFetchApp.fetch(url, {
-      method: "post",
-      headers: {
-        "Authorization": "Bearer " + cfg.token,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-      },
-      payload: JSON.stringify({ token: token }),
-      muteHttpExceptions: true
-    });
+  if (!player) {
+    return jsonOut_({ ok: false, error: "Player not found in clan members list" });
+  }
 
-    const code = resp.getResponseCode();
-    const result = JSON.parse(resp.getContentText());
+  const sheetToken = String(getValCI_(player, "token") || "").trim();
+  if (!sheetToken) {
+    return jsonOut_({ ok: false, error: "Player has no login token configured in sheet" });
+  }
 
-    if (code >= 200 && code < 300) {
-      return jsonOut_({ ok: true, status: result.status });
-    } else {
-      return jsonOut_({ ok: false, error: result.reason || result.message || "Verify failed", code: code });
-    }
-  } catch (e) {
-    return jsonOut_({ ok: false, error: String(e) });
+  if (sheetToken === token) {
+    return jsonOut_({ ok: true, status: "ok" });
+  } else {
+    return jsonOut_({ ok: true, status: "invalid" });
   }
 }
 
 function handlePlayerListCurrent_(req) {
   const members = readAllSheetObjects_("MembersCurrent");
-  const rows = members.map(m => ({
-    tag: String(m.playerTag || ""),
-    name: String(m.name || ""),
-    role: String(m.role || ""),
-    th: String(m.townHallLevel || "")
-  }));
+  const rows = members
+    .filter(m => {
+      const status = String(getValCI_(m, "status") || "IN").toUpperCase();
+      return status === "IN";
+    })
+    .map(m => ({
+      tag: String(m.playerTag || ""),
+      name: String(m.name || ""),
+      role: String(m.role || ""),
+      th: String(m.townHallLevel || "")
+    }));
   return jsonOut_({ ok: true, rows: rows });
 }
 
@@ -1555,4 +1570,12 @@ function handleAccessStats_(req) {
   }
   
   return jsonOut_({ ok: true, total: count });
+}
+
+function normalizeSearchStr_(str) {
+  return String(str || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d");
 }

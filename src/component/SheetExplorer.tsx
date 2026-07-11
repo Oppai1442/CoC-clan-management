@@ -3,7 +3,7 @@ import { useSheetExplorer } from "../hooks/useSheetExplorer";
 import { useAuth } from "../hooks/useAuth";
 import { LoginModal } from "./LoginModal";
 import { AddNoteModal } from "./AddNoteModal";
-import { fetchEndpoint, fetchAccessStats, AVAILABLE_ENDPOINTS } from "../lib/sheetApi";
+import { fetchEndpoint, fetchAccessStats, AVAILABLE_ENDPOINTS, verifyPlayerToken } from "../lib/sheetApi";
 import {
   Search,
   RotateCw,
@@ -130,6 +130,31 @@ function rawString(value: unknown) {
 export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const { t, i18n } = useTranslation();
   const { user, login, logout, isAuthenticated } = useAuth();
+  const [hasVerifiedAuth, setHasVerifiedAuth] = useState(false);
+
+  // Auto-login verification on mount
+  useEffect(() => {
+    if (!baseUrl || hasVerifiedAuth) return;
+    if (user?.tag && user?.token) {
+      verifyPlayerToken(baseUrl, user.tag, user.token)
+        .then(resp => {
+          if (resp.status !== 'ok') {
+            logout();
+          }
+          setHasVerifiedAuth(true);
+        })
+        .catch(err => {
+          console.error("Auto login verification failed:", err);
+          if (err.message && (err.message.includes("not found") || err.message.includes("invalid") || err.message.includes("40"))) {
+            logout();
+          }
+          setHasVerifiedAuth(true);
+        });
+    } else {
+      setHasVerifiedAuth(true);
+    }
+  }, [baseUrl, user, hasVerifiedAuth, logout]);
+
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isColumnsOpen, setIsColumnsOpen] = useState(false);
@@ -139,6 +164,16 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQ(q);
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+  }, [q]);
+
   const [maxShow, setMaxShow] = useState(500);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [tempFilters, setTempFilters] = useState<Record<string, string>>({});
@@ -256,7 +291,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     refresh,
     mutateRow
   } = useSheetExplorer(baseUrl, pollMs, {
-    q,
+    q: debouncedQ,
     sortBy: sortConfig?.key,
     sortDir: sortConfig?.direction,
     authTag: user?.tag,
@@ -855,19 +890,21 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
               </button>
             )}
 
-            <div className="flex items-center gap-2 bg-[#1a1a1a] p-1 lg:p-1.5 rounded-lg border border-[#444] shadow-inner">
-              <span className="hidden lg:inline text-[10px] text-[#888] px-2 uppercase font-bold">{t("action.showLast")}</span>
-              <select
-                value={maxShow}
-                onChange={e => setMaxShow(parseInt(e.target.value, 10))}
-                className="bg-[#333] text-white text-[10px] lg:text-xs font-bold border border-[#555] rounded py-0.5 lg:py-1 pl-1 lg:pl-2 pr-2 lg:pr-4 focus:outline-none focus:border-yellow-500 cursor-pointer"
-              >
-                <option value={200}>200</option>
-                <option value={500}>500</option>
-                <option value={1000}>1000</option>
-                <option value={5000}>5000</option>
-              </select>
-            </div>
+            {!isReplaceStrategy && (
+              <div className="flex items-center gap-2 bg-[#1a1a1a] p-1 lg:p-1.5 rounded-lg border border-[#444] shadow-inner">
+                <span className="hidden lg:inline text-[10px] text-[#888] px-2 uppercase font-bold">{t("action.showLast")}</span>
+                <select
+                  value={maxShow}
+                  onChange={e => setMaxShow(parseInt(e.target.value, 10))}
+                  className="bg-[#333] text-white text-[10px] lg:text-xs font-bold border border-[#555] rounded py-0.5 lg:py-1 pl-1 lg:pl-2 pr-2 lg:pr-4 focus:outline-none focus:border-yellow-500 cursor-pointer"
+                >
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
+                  <option value={1000}>1000</option>
+                  <option value={5000}>5000</option>
+                </select>
+              </div>
+            )}
           </div>
         </header>
 

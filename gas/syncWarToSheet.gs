@@ -54,7 +54,8 @@ const SHEETS = {
       "clanCapitalContributions",
       "adminNote",
       "memberNote",
-      "status" // Cột mới để biết còn trong clan không
+      "status", // Cột mới để biết còn trong clan không
+      "token"
     ]
   },
 
@@ -678,7 +679,8 @@ function syncClanAndMembers_(cfg) {
               // Bảo toàn ghi chú (API không có nên sẽ luôn lấy từ sheet cũ)
               getVal("adminNote", ""),
               getVal("memberNote", ""),
-              "IN" // Đang ở trong Clan
+              "IN", // Đang ở trong Clan
+              getVal("token", "")
             ]);
           });
       
