@@ -41,6 +41,7 @@ const en = {
   "details.empty": "No row selected.",
   "war.latest": "Latest war",
 
+  "endpoint.announcements": "Announcements",
   "endpoint.clan-members": "Clan Members",
   "endpoint.member-events": "Member Events",
   "endpoint.war-history": "War History",
@@ -333,6 +334,7 @@ const vi = {
   "details.empty": "Chưa chọn dòng nào.",
   "war.latest": "Trận mới nhất",
 
+  "endpoint.announcements": "Thông Báo",
   "endpoint.clan-members": "Thành viên Clan",
   "endpoint.member-events": "Sự kiện Thành viên",
   "endpoint.war-history": "Lịch sử War",

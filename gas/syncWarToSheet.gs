@@ -21,6 +21,19 @@
  * SHEETS
  * ========================= */
 const SHEETS = {
+  Announcements: {
+    headers: [
+      "id",
+      "ts",
+      "authorTag",
+      "authorName",
+      "title",
+      "content",
+      "imageUrl",
+      "imageUrls",
+      "youtubeUrl"
+    ]
+  },
   data: {
     headers: [
       "access_time",

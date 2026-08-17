@@ -46,6 +46,7 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 // --- API Methods ---
 
 export const AVAILABLE_ENDPOINTS = [
+  { name: "Announcements", i18nKey: "endpoint.announcements", path: "/api/v1/announcements", strategy: "replace" },
   { name: "Clan Members", i18nKey: "endpoint.clan-members", path: "/api/v1/clan/members", strategy: "replace" },
   { name: "Member Events", i18nKey: "endpoint.member-events", path: "/api/v1/member-events", strategy: "replace" },
   { name: "War History", i18nKey: "endpoint.war-history", path: "/api/v1/war/history", strategy: "replace" },
@@ -153,4 +154,53 @@ export async function deletePlayerNote(baseUrl: string, opts: {
 export async function fetchAccessStats(baseUrl: string, update: boolean = false) {
   const url = buildUrl(baseUrl, { path: "/api/v1/access-stats", update: String(update) });
   return fetchJson<{ ok: true, total: number }>(url);
+}
+
+export async function createAnnouncement(
+  baseUrl: string,
+  payload: {
+    authTag: string;
+    token: string;
+    title: string;
+    content: string;
+    imageUrls?: string;
+    youtubeUrl?: string;
+  }
+) {
+  const url = baseUrl.replace(/\/$/, "") + "?path=/api/v1/announcements/create";
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain"
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.error || "Failed to create announcement");
+  }
+  return data as { ok: true, message: string, id: string };
+}
+
+export async function deleteAnnouncement(
+  baseUrl: string,
+  payload: {
+    authTag: string;
+    token: string;
+    id: string;
+  }
+) {
+  const url = baseUrl.replace(/\/$/, "") + "?path=/api/v1/announcements/delete";
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain"
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!data.ok) {
+    throw new Error(data.error || "Failed to delete announcement");
+  }
+  return data as { ok: true, message: string };
 }

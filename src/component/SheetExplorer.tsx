@@ -3,7 +3,7 @@ import { useSheetExplorer } from "../hooks/useSheetExplorer";
 import { useAuth } from "../hooks/useAuth";
 import { LoginModal } from "./LoginModal";
 import { AddNoteModal } from "./AddNoteModal";
-import { fetchEndpoint, fetchAccessStats, AVAILABLE_ENDPOINTS, verifyPlayerToken } from "../lib/sheetApi";
+import { fetchEndpoint, fetchAccessStats, AVAILABLE_ENDPOINTS, verifyPlayerToken, createAnnouncement, deleteAnnouncement } from "../lib/sheetApi";
 import {
   Search,
   RotateCw,
@@ -36,7 +36,9 @@ import {
   Info,
   Copy,
   Check,
-  BarChart3
+  BarChart3,
+  Plus,
+  Trash2
 } from "lucide-react";
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
@@ -180,6 +182,16 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isColumnsOpen, setIsColumnsOpen] = useState(false);
+  
+  // Announcements tab state
+  const [isAnnounceModalOpen, setIsAnnounceModalOpen] = useState(false);
+  const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null);
+  const [announceTitle, setAnnounceTitle] = useState("");
+  const [announceContent, setAnnounceContent] = useState("");
+  const [imageUrls, setImageUrls] = useState("");
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [announceLoading, setAnnounceLoading] = useState(false);
+  const [announceError, setAnnounceError] = useState("");
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [selectedRowData, setSelectedRowData] = useState<Record<string, any> | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<Record<string, boolean>>({});
@@ -690,6 +702,66 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     setNoteTarget({ tag, name, memberNote: row.memberNote, adminNote: row.adminNote });
   };
 
+  const handleAnnounceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!announceTitle.trim() || !announceContent.trim()) {
+      setAnnounceError(i18n.language === "vi" ? "Vui lòng nhập đầy đủ tiêu đề và nội dung" : "Please fill in title and content");
+      return;
+    }
+    if (!user || user.tag !== "#VCVQQCUJ") {
+      setAnnounceError(i18n.language === "vi" ? "Bạn không có quyền đăng thông báo" : "Unauthorized");
+      return;
+    }
+
+    setAnnounceLoading(true);
+    setAnnounceError("");
+
+    try {
+      await createAnnouncement(baseUrl, {
+        authTag: user.tag,
+        token: user.token,
+        title: announceTitle.trim(),
+        content: announceContent.trim(),
+        imageUrls: imageUrls.trim() || undefined,
+        youtubeUrl: youtubeUrl.trim() || undefined
+      });
+
+      // Clear state and close
+      setAnnounceTitle("");
+      setAnnounceContent("");
+      setImageUrls("");
+      setYoutubeUrl("");
+      setIsAnnounceModalOpen(false);
+      
+      // Refresh feed
+      refresh();
+    } catch (err: any) {
+      console.error(err);
+      setAnnounceError(err.message || "Failed to post announcement");
+    } finally {
+      setAnnounceLoading(false);
+    }
+  };
+
+  const handleAnnounceDelete = async (id: string) => {
+    if (!window.confirm(i18n.language === "vi" ? "Bạn có chắc chắn muốn xóa thông báo này?" : "Are you sure you want to delete this announcement?")) {
+      return;
+    }
+    if (!user || user.tag !== "#VCVQQCUJ") return;
+
+    try {
+      await deleteAnnouncement(baseUrl, {
+        authTag: user.tag,
+        token: user.token,
+        id
+      });
+      refresh();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Failed to delete announcement");
+    }
+  };
+
   return (
     <div className="flex h-screen w-full bg-[#2a2a2a] text-[#f0f0f0] font-sans overflow-hidden font-bold select-none relative">
       <div className="absolute inset-0 opacity-10 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]" />
@@ -1061,110 +1133,216 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           <div className="bg-[#f0e6d2] border-2 lg:border-4 border-[#b89b72] rounded-xl shadow-2xl overflow-hidden h-full flex flex-col relative text-[#2a2a2a]">
             <div className="absolute inset-0 opacity-20 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cream-paper.png')]" />
 
-            <div className="overflow-auto flex-1 scrollbar-parchment relative z-10">
-              <table className="w-full text-left border-collapse">
-                <thead className={clsx("bg-[#e6d5b8] sticky top-0 z-10 shadow-md border-b-2 border-[#cbbda2] transition-all", activeTourType === "main" && activeTourIndex === 3 && "ring-4 ring-yellow-500")}> 
-                  <tr>
-                    {visibleHeaders.map((h, i) => (
-                      <th key={i} className={clsx(
-                        "px-3 lg:px-4 py-2 lg:py-3 text-[10px] lg:text-xs font-black text-[#5c4a35] uppercase tracking-wider min-w-[120px] lg:min-w-[150px] align-top transition-all",
-                        activeTourType === "members" && activeTourIndex === 2 && (h === "memberNote" || h === "adminNote") && "bg-yellow-500/20 ring-4 ring-yellow-500 ring-inset"
-                      )}>
-                        <div className="flex flex-col gap-1 lg:gap-2">
-                          <div className="flex items-center gap-1 cursor-pointer hover:text-[#3a2e20] select-none" onClick={() => toggleSort(h)}>
-                            <span>{t(`field.${h}`, h)}</span>
-                            {sortConfig?.key === h && (
-                              sortConfig.direction === "asc" ? <ArrowUp size={12} className="text-orange-600" /> : <ArrowDown size={12} className="text-orange-600" />
-                            )}
-                          </div>
-                          <div className="relative">
-                            <input
-                              className="w-full bg-[#fcf5e5] border border-[#cbbda2] rounded px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-[11px] font-normal focus:outline-none focus:border-orange-400 placeholder-[#b89b72]"
-                              placeholder={t("filter.placeholder")}
-                              value={tempFilters[h] || ""}
-                              onChange={e => updateFilter(h, e.target.value)}
-                              onKeyDown={handleFilterKeyDown}
-                            />
-                            {tempFilters[h] && <button onClick={() => updateFilter(h, "")} className="absolute right-1 top-1/2 -translate-y-1/2 text-[#b89b72] hover:text-red-500"><X size={10} /></button>}
-                          </div>
-                        </div>
-                      </th>
-                    ))}
-                    {visibleHeaders.length === 0 && <th className="p-4" />}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#dccfb9]">
-                  {shown.map((r, idx) => {
-                    const tag = r.playerTag || r.tag || r.attackerTag;
-                    const name = r.playerName || r.name || r.attackerName;
-                    const canNote = isAuthenticated && tag && name && activeSheetName === "Clan Members";
-                    const isFirstRow = idx === 0;
-                    const rowKey = getRowSelectionKey(r, idx);
-                    const isSelected = selectedRowId === rowKey;
+            {activeSheetName === "Announcements" ? (
+              <div className="overflow-auto flex-1 p-4 lg:p-6 space-y-6 scrollbar-parchment relative z-10 max-w-4xl mx-auto w-full">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b-2 border-[#b89b72]/40 pb-4">
+                  <div>
+                    <h2 className="text-xl lg:text-2xl font-black text-orange-950 uppercase tracking-wide">📢 {t("endpoint.announcements")}</h2>
+                    <p className="text-xs text-[#806f5c] mt-1">Thông báo và cập nhật mới nhất từ ban quản trị clan</p>
+                  </div>
+                  {user?.tag === "#VCVQQCUJ" && (
+                    <button
+                      onClick={() => setIsAnnounceModalOpen(true)}
+                      className="px-4 py-2 bg-green-700 hover:bg-green-600 text-white font-bold text-xs lg:text-sm uppercase tracking-wider rounded-lg shadow-lg hover:shadow-green-700/20 active:translate-y-0.5 transition-all flex items-center gap-2 border-b-4 border-green-900 active:border-b-0"
+                    >
+                      <Plus size={16} />
+                      <span>{i18n.language === "vi" ? "Đăng thông báo" : "New Post"}</span>
+                    </button>
+                  )}
+                </div>
 
-                    return (
-                      <tr
-                        key={rowKey}
-                        onClick={() => {
-                          setSelectedRowId(rowKey);
-                          setSelectedRowData(r);
-                        }}
-                        className={clsx(
-                          "transition-colors group odd:bg-[#f0e6d2] even:bg-[#ebe0ca] cursor-pointer",
-                          isSelected ? "bg-[#f8e7b8]" : "hover:bg-[#fff9ea]",
-                          activeTourType === "members" && activeTourIndex === 0 && isFirstRow && "ring-4 ring-yellow-500 ring-inset z-50 bg-yellow-100"
-                        )}
-                      >
-                        {visibleHeaders.map((h, i) => (
-                          <td
-                            key={i}
-                            className={clsx(
-                              "px-3 lg:px-4 py-2 lg:py-2.5 font-semibold text-[#4a3b2a] whitespace-nowrap border-r border-[#dccfb9]/50 last:border-0 relative transition-colors",
-                              isSelected && "bg-[#f6de9f]"
-                            )}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span>{formatValue((r as any)[h], h)}</span>
-                              {canNote && (h === "playerName" || h === "name" || h === "attackerName") && (
-                                <button
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    openNotesForRow(r);
-                                  }}
-                                  className="p-1 rounded bg-orange-100 hover:bg-orange-200 text-orange-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  title={t("action.openNotes")}
-                                >
-                                  <StickyNote size={12} />
-                                </button>
+                {rows.length === 0 ? (
+                  <div className="py-20 text-center text-[#998877] font-bold uppercase tracking-wider">
+                    {loading ? (
+                      <div className="flex flex-col items-center gap-4">
+                        <RotateCw className="animate-spin text-green-600/50" size={32} />
+                        <span className="text-xs animate-pulse">{t("status.loading")}</span>
+                      </div>
+                    ) : (
+                      "Chưa có thông báo nào"
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {rows.map((r: any) => {
+                      const imageUrlList = [
+                        ...(r.imageUrl ? [r.imageUrl] : []),
+                        ...String(r.imageUrls || "").split(",").map(x => x.trim()).filter(Boolean)
+                      ];
+
+                      const getYouTubeId = (url: string) => {
+                        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+                        const match = String(url).match(regExp);
+                        return (match && match[2].length === 11) ? match[2] : null;
+                      };
+                      const ytId = r.youtubeUrl ? getYouTubeId(r.youtubeUrl) : null;
+
+                      return (
+                        <article key={r.id} className="bg-[#fcfaf2] border-2 border-[#dccfb9] rounded-xl p-5 lg:p-6 shadow-md hover:shadow-lg transition-all relative overflow-hidden group text-left text-xs lg:text-sm">
+                          <div className="absolute top-0 left-0 w-1.5 h-full bg-[#b89b72]" />
+                          
+                          {user?.tag === "#VCVQQCUJ" && (
+                            <button
+                              onClick={() => handleAnnounceDelete(r.id)}
+                              className="absolute top-4 right-4 p-2 text-red-700 hover:text-red-500 hover:bg-red-100/50 rounded-lg transition-colors animate-in fade-in"
+                              title={i18n.language === "vi" ? "Xóa thông báo" : "Delete Announcement"}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+
+                          <header className="flex flex-col gap-1 border-b border-[#dccfb9]/60 pb-3 mb-4 pr-8">
+                            <h3 className="text-base lg:text-lg font-black text-orange-950 break-words leading-tight">{r.title}</h3>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] lg:text-xs text-[#806f5c] font-medium mt-1">
+                              <span className="font-bold text-orange-800">👑 {r.authorName} ({r.authorTag})</span>
+                              <span className="opacity-50">•</span>
+                              <span>📅 {formatRawForDisplay(r.ts, "ts")}</span>
+                            </div>
+                          </header>
+                          
+                          <div className="text-xs lg:text-sm text-[#3a2e20] leading-relaxed whitespace-pre-wrap font-medium break-words select-text">
+                            {r.content}
+                          </div>
+
+                          {imageUrlList.length > 0 && (
+                            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl select-none">
+                              {imageUrlList.map((url, idx) => (
+                                <div key={idx} className="overflow-hidden rounded-lg border border-[#dccfb9]/60 bg-black/5 aspect-video w-full">
+                                  <img
+                                    src={url}
+                                    alt={`${r.title} - ${idx + 1}`}
+                                    className="w-full h-full object-cover cursor-zoom-in hover:scale-[1.01] transition-transform duration-200"
+                                    onClick={() => setZoomImageUrl(url)}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {ytId && (
+                            <div className="mt-4 overflow-hidden rounded-xl border border-[#dccfb9]/60 aspect-video w-full max-w-2xl bg-black shadow-lg">
+                              <iframe
+                                src={`https://www.youtube.com/embed/${ytId}`}
+                                title="YouTube video player"
+                                frameBorder="0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                allowFullScreen
+                                className="w-full h-full"
+                              />
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-auto flex-1 scrollbar-parchment relative z-10">
+                <table className="w-full text-left border-collapse">
+                  <thead className={clsx("bg-[#e6d5b8] sticky top-0 z-10 shadow-md border-b-2 border-[#cbbda2] transition-all", activeTourType === "main" && activeTourIndex === 3 && "ring-4 ring-yellow-500")}> 
+                    <tr>
+                      {visibleHeaders.map((h, i) => (
+                        <th key={i} className={clsx(
+                          "px-3 lg:px-4 py-2 lg:py-3 text-[10px] lg:text-xs font-black text-[#5c4a35] uppercase tracking-wider min-w-[120px] lg:min-w-[150px] align-top transition-all",
+                          activeTourType === "members" && activeTourIndex === 2 && (h === "memberNote" || h === "adminNote") && "bg-yellow-500/20 ring-4 ring-yellow-500 ring-inset"
+                        )}>
+                          <div className="flex flex-col gap-1 lg:gap-2">
+                            <div className="flex items-center gap-1 cursor-pointer hover:text-[#3a2e20] select-none" onClick={() => toggleSort(h)}>
+                              <span>{t(`field.${h}`, h)}</span>
+                              {sortConfig?.key === h && (
+                                sortConfig.direction === "asc" ? <ArrowUp size={12} className="text-orange-600" /> : <ArrowDown size={12} className="text-orange-600" />
                               )}
                             </div>
-                          </td>
-                        ))}
-                      </tr>
-                    );
-                  })}
-                  {shown.length === 0 && (
-                    <tr>
-                      <td colSpan={Math.max(1, visibleHeaders.length)} className="px-6 py-20 text-center text-[#998877]">
-                        {(loading || isInitialLoading) ? (
-                          <div className="flex flex-col items-center gap-4">
-                            <RotateCw className="animate-spin text-green-600/50" size={48} />
-                            <p className="font-bold text-base lg:text-lg uppercase tracking-widest animate-pulse text-green-800/40">
-                              {t("status.loading")}
-                            </p>
+                            <div className="relative">
+                              <input
+                                className="w-full bg-[#fcf5e5] border border-[#cbbda2] rounded px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-[11px] font-normal focus:outline-none focus:border-orange-400 placeholder-[#b89b72]"
+                                placeholder={t("filter.placeholder")}
+                                value={tempFilters[h] || ""}
+                                onChange={e => updateFilter(h, e.target.value)}
+                                onKeyDown={handleFilterKeyDown}
+                              />
+                              {tempFilters[h] && <button onClick={() => updateFilter(h, "")} className="absolute right-1 top-1/2 -translate-y-1/2 text-[#b89b72] hover:text-red-500"><X size={10} /></button>}
+                            </div>
                           </div>
-                        ) : (
-                          <div className="flex flex-col items-center gap-4 opacity-60">
-                            <Layers size={48} />
-                            <p className="font-bold text-base lg:text-lg uppercase tracking-widest">{t("status.noData")}</p>
-                          </div>
-                        )}
-                      </td>
+                        </th>
+                      ))}
+                      {visibleHeaders.length === 0 && <th className="p-4" />}
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-[#dccfb9]">
+                    {shown.map((r, idx) => {
+                      const tag = r.playerTag || r.tag || r.attackerTag;
+                      const name = r.playerName || r.name || r.attackerName;
+                      const canNote = isAuthenticated && tag && name && activeSheetName === "Clan Members";
+                      const isFirstRow = idx === 0;
+                      const rowKey = getRowSelectionKey(r, idx);
+                      const isSelected = selectedRowId === rowKey;
+
+                      return (
+                        <tr
+                          key={rowKey}
+                          onClick={() => {
+                            setSelectedRowId(rowKey);
+                            setSelectedRowData(r);
+                          }}
+                          className={clsx(
+                            "transition-colors group odd:bg-[#f0e6d2] even:bg-[#ebe0ca] cursor-pointer",
+                            isSelected ? "bg-[#f8e7b8]" : "hover:bg-[#fff9ea]",
+                            activeTourType === "members" && activeTourIndex === 0 && isFirstRow && "ring-4 ring-yellow-500 ring-inset z-50 bg-yellow-100"
+                          )}
+                        >
+                          {visibleHeaders.map((h, i) => (
+                            <td
+                              key={i}
+                              className={clsx(
+                                "px-3 lg:px-4 py-2 lg:py-2.5 font-semibold text-[#4a3b2a] whitespace-nowrap border-r border-[#dccfb9]/50 last:border-0 relative transition-colors",
+                                isSelected && "bg-[#f6de9f]"
+                              )}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span>{formatValue((r as any)[h], h)}</span>
+                                {canNote && (h === "playerName" || h === "name" || h === "attackerName") && (
+                                  <button
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      openNotesForRow(r);
+                                    }}
+                                    className="p-1 rounded bg-orange-100 hover:bg-orange-200 text-orange-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title={t("action.openNotes")}
+                                  >
+                                    <StickyNote size={12} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                    {shown.length === 0 && (
+                      <tr>
+                        <td colSpan={Math.max(1, visibleHeaders.length)} className="px-6 py-20 text-center text-[#998877]">
+                          {(loading || isInitialLoading) ? (
+                            <div className="flex flex-col items-center gap-4">
+                              <RotateCw className="animate-spin text-green-600/50" size={48} />
+                              <p className="font-bold text-base lg:text-lg uppercase tracking-widest animate-pulse text-green-800/40">
+                                {t("status.loading")}
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center gap-4 opacity-60">
+                              <Layers size={48} />
+                              <p className="font-bold text-base lg:text-lg uppercase tracking-widest">{t("status.noData")}</p>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             {isReplaceStrategy && totalAfterFilter > 0 && (
               <div className="border-t-2 border-[#cbbda2] bg-[#fdfaf2] px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-[#5c4a37] font-semibold relative z-10">
@@ -1377,6 +1555,142 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
             setNoteTarget(prev => prev ? { ...prev, [field]: newJson } : null);
           }}
         />
+      )}
+
+      {/* Create Announcement Modal */}
+      {isAnnounceModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setIsAnnounceModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-xl bg-[#2a1d12] border-4 border-[#4e3b2a] rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative text-orange-50 flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="absolute inset-0 opacity-10 pointer-events-none rounded-[14px] overflow-hidden">
+              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]"></div>
+            </div>
+
+            <div className="p-4 bg-[#2a1d12] border-b-4 border-[#1a110a] flex items-center justify-between gap-3 relative z-10">
+              <h3 className="text-sm lg:text-base font-black text-yellow-500 uppercase tracking-wider flex items-center gap-2">
+                📢 {i18n.language === "vi" ? "Đăng thông báo mới" : "New Announcement"}
+              </h3>
+              <button
+                onClick={() => setIsAnnounceModalOpen(false)}
+                className="p-1 text-orange-200/40 hover:text-white rounded-lg transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAnnounceSubmit} className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-4 relative z-10 scrollbar-parchment">
+              {announceError && (
+                <div className="p-3 bg-red-950/60 border border-red-800 rounded-lg text-red-200 text-xs font-semibold">
+                  {announceError}
+                </div>
+              )}
+
+              <div className="space-y-1 flex flex-col text-left">
+                <label className="text-[10px] uppercase tracking-wider text-orange-200/50 font-black">
+                  {i18n.language === "vi" ? "Tiêu đề" : "Title"}
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder={i18n.language === "vi" ? "Nhập tiêu đề thông báo..." : "Enter title..."}
+                  value={announceTitle}
+                  onChange={(e) => setAnnounceTitle(e.target.value)}
+                  className="w-full bg-[#1a110a] border-2 border-[#4e3b2a] rounded-lg px-3 py-2 text-orange-50 placeholder-orange-200/20 focus:outline-none focus:border-yellow-500 text-xs lg:text-sm font-semibold transition-colors"
+                />
+              </div>
+
+              <div className="space-y-1 flex flex-col text-left">
+                <label className="text-[10px] uppercase tracking-wider text-orange-200/50 font-black">
+                  {i18n.language === "vi" ? "Nội dung" : "Content"}
+                </label>
+                <textarea
+                  required
+                  rows={8}
+                  placeholder={i18n.language === "vi" ? "Nhập nội dung thông báo (hỗ trợ xuống dòng)..." : "Enter announcement content..."}
+                  value={announceContent}
+                  onChange={(e) => setAnnounceContent(e.target.value)}
+                  className="w-full bg-[#1a110a] border-2 border-[#4e3b2a] rounded-lg px-3 py-2 text-orange-50 placeholder-orange-200/20 focus:outline-none focus:border-yellow-500 text-xs lg:text-sm font-semibold transition-colors resize-none custom-scrollbar"
+                />
+              </div>
+
+              <div className="space-y-1 flex flex-col text-left">
+                <label className="text-[10px] uppercase tracking-wider text-orange-200/50 font-black">
+                  {i18n.language === "vi" ? "Link hình ảnh (Phân cách bằng dấu phẩy nếu có nhiều ảnh)" : "Image URLs (Comma separated if multiple)"}
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://example.com/image1.jpg, https://example.com/image2.png"
+                  value={imageUrls}
+                  onChange={(e) => setImageUrls(e.target.value)}
+                  className="w-full bg-[#1a110a] border-2 border-[#4e3b2a] rounded-lg px-3 py-2 text-orange-50 placeholder-orange-200/20 focus:outline-none focus:border-yellow-500 text-xs lg:text-sm font-semibold transition-colors"
+                />
+              </div>
+
+              <div className="space-y-1 flex flex-col text-left">
+                <label className="text-[10px] uppercase tracking-wider text-orange-200/50 font-black">
+                  {i18n.language === "vi" ? "Link video Youtube (Tùy chọn)" : "YouTube Video Link (Optional)"}
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={youtubeUrl}
+                  onChange={(e) => setYoutubeUrl(e.target.value)}
+                  className="w-full bg-[#1a110a] border-2 border-[#4e3b2a] rounded-lg px-3 py-2 text-orange-50 placeholder-orange-200/20 focus:outline-none focus:border-yellow-500 text-xs lg:text-sm font-semibold transition-colors"
+                />
+              </div>
+
+              <div className="border-t border-[#4e3b2a] pt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAnnounceModalOpen(false)}
+                  className="px-4 py-2 bg-transparent hover:bg-white/5 border border-[#4e3b2a] text-orange-200 hover:text-white rounded-lg font-bold text-xs lg:text-sm uppercase tracking-wider transition-colors"
+                >
+                  {i18n.language === "vi" ? "Hủy" : "Cancel"}
+                </button>
+                <button
+                  type="submit"
+                  disabled={announceLoading}
+                  className="px-5 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white font-bold text-xs lg:text-sm uppercase tracking-wider rounded-lg shadow-lg hover:shadow-green-700/20 active:translate-y-0.5 transition-all border-b-4 border-green-900 active:border-b-0 flex items-center gap-2"
+                >
+                  {announceLoading ? (
+                    <>
+                      <RotateCw size={14} className="animate-spin" />
+                      <span>{i18n.language === "vi" ? "Đang đăng..." : "Posting..."}</span>
+                    </>
+                  ) : (
+                    <span>{i18n.language === "vi" ? "Đăng" : "Post"}</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Image Lightbox Zoom Overlay */}
+      {zoomImageUrl && (
+        <div
+          className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/95 animate-in fade-in duration-200 cursor-zoom-out select-none"
+          onClick={() => setZoomImageUrl(null)}
+        >
+          <button
+            onClick={() => setZoomImageUrl(null)}
+            className="absolute top-6 right-6 p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-xl transition-all"
+          >
+            <X size={24} />
+          </button>
+          <img
+            src={zoomImageUrl}
+            alt="Zoomed Announcement Asset"
+            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl border border-white/10 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       )}
     </div>
   );
