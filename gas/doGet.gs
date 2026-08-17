@@ -252,69 +252,67 @@ function handleWarStatsCurrent_(req) {
   const members = readAllSheetObjects_("MembersCurrent");
   const stats = getFreshWarStatsRows_(members);
 
-  const memMap = new Map();
+  const statsMap = new Map();
+  stats.forEach(s => {
+    const norm = normalizeWarStatsRow_(s);
+    if (norm.playerTag) {
+      statsMap.set(norm.playerTag.trim().toUpperCase(), norm);
+    }
+  });
+
+  // Loop through current members to include all of them (Left Join)
+  let rows = [];
   members.forEach(m => {
-    const tag = String(m.playerTag || "").trim();
+    const tag = String(m.playerTag || "").trim().toUpperCase();
     const status = String(getValCI_(m, "status") || "IN").toUpperCase();
     if (!tag) return;
     if (status !== "IN") return;
-    memMap.set(tag, {
+
+    const s = statsMap.get(tag) || {};
+
+    rows.push({
       playerTag: tag,
-      name: String(m.name || "").trim(),
-      role: String(m.role || "").trim(),
-      roleVi: roleVi_(String(m.role || "").trim())
+      playerName: String(m.name || "").trim() || String(s.playerName || "").trim() || "",
+      roleVi: roleVi_(String(m.role || "").trim()),
+
+      // CW
+      cw_wars_joined: toNum0_(s.cw_wars_joined),
+      cw_attacks_done: toNum0_(s.cw_attacks_done),
+      cw_attacks_required: toNum0_(s.cw_attacks_required),
+      cw_missed_attacks: toNum0_(s.cw_missed_attacks),
+      cw_completion_rate_pct: s.cw_completion_rate_pct !== undefined ? s.cw_completion_rate_pct : "",
+
+      // CWL
+      cwl_wars_joined: toNum0_(s.cwl_seasons_joined),
+      cwl_seasons_joined: toNum0_(s.cwl_seasons_joined),
+      cwl_rounds_present: toNum0_(s.cwl_rounds_present),
+      cwl_attacks_done: toNum0_(s.cwl_attacks_done),
+      cwl_attacks_required: toNum0_(s.cwl_attacks_required),
+      cwl_missed_attacks: toNum0_(s.cwl_missed_attacks),
+      cwl_completion_rate_pct: s.cwl_completion_rate_pct !== undefined ? s.cwl_completion_rate_pct : "",
+
+      // Overall
+      overall_attacks_done: toNum0_(s.overall_attacks_done),
+      overall_attacks_required: toNum0_(s.overall_attacks_required),
+      overall_missed_attacks: toNum0_(s.overall_missed_attacks),
+      overall_completion_rate_pct: s.overall_completion_rate_pct !== undefined ? s.overall_completion_rate_pct : "",
+      overall_score: toNum0_(s.overall_score),
     });
   });
 
-  // Filter only current clan members
-  let rows = stats
-    .map(s => normalizeWarStatsRow_(s))
-    .filter(s => memMap.has(s.playerTag))
-    .map(s => {
-      const m = memMap.get(s.playerTag);
-      return {
-        playerTag: s.playerTag,
-        playerName: m.name || s.playerName || "",
-        roleVi: m.roleVi || "",
+  // Sorting (server side)
+  const sortBy = String(req.params.sortBy || "overall_completion_rate_pct").trim();
+  const sortDir = (String(req.params.sortDir || "desc").toLowerCase() === "asc") ? "asc" : "desc";
+  rows.sort((a, b) => compareSmart_(a[sortBy], b[sortBy], sortDir));
 
-        // CW
-        cw_wars_joined: s.cw_wars_joined,
-        cw_attacks_done: s.cw_attacks_done,
-        cw_attacks_required: s.cw_attacks_required,
-        cw_missed_attacks: s.cw_missed_attacks,
-        cw_completion_rate_pct: s.cw_completion_rate_pct,
-
-        // CWL
-        cwl_wars_joined: s.cwl_seasons_joined,
-        cwl_seasons_joined: s.cwl_seasons_joined,
-        cwl_rounds_present: s.cwl_rounds_present,
-        cwl_attacks_done: s.cwl_attacks_done,
-        cwl_attacks_required: s.cwl_attacks_required,
-        cwl_missed_attacks: s.cwl_missed_attacks,
-        cwl_completion_rate_pct: s.cwl_completion_rate_pct,
-
-        // Overall
-        overall_attacks_done: s.overall_attacks_done,
-        overall_attacks_required: s.overall_attacks_required,
-        overall_missed_attacks: s.overall_missed_attacks,
-        overall_completion_rate_pct: s.overall_completion_rate_pct,
-        overall_score: s.overall_score,
-      };
-    });
-
-    // Sorting (server side)
-    const sortBy = String(req.params.sortBy || "overall_completion_rate_pct").trim();
-    const sortDir = (String(req.params.sortDir || "desc").toLowerCase() === "asc") ? "asc" : "desc";
-    rows.sort((a, b) => compareSmart_(a[sortBy], b[sortBy], sortDir));
-
-    return jsonOut_({
-      ok: true,
-      ts: new Date().toISOString(),
-      resource: "war-stats-current",
-      total: rows.length,
-      rows
-    });
-  }
+  return jsonOut_({
+    ok: true,
+    ts: new Date().toISOString(),
+    resource: "war-stats-current",
+    total: rows.length,
+    rows
+  });
+}
 /* =========================
  * Recommend roster for war
  * ========================= */
@@ -328,7 +326,7 @@ function handleWarRecommend_(req) {
   const k = clampInt_(req.params.k, 10, 0, 1000);
   const kWars = clampInt_(req.params.kWars, 5, 0, 1000);
 
-  const includeNoHistory = String(req.params.includeNoHistory || "false").toLowerCase() === "true";
+  const includeNoHistory = String(req.params.includeNoHistory || "true").toLowerCase() === "true";
 
   // NEW: exclude list
   const excludeSet = new Set(parseCsvList_(req.params.exclude).map(x => String(x).trim()));
@@ -1578,32 +1576,40 @@ function handlePlayerDeleteNote_(req) {
 
 function handleClanMembers_(req) {
   const authTag = String(req.params.authTag || "").trim();
+
+  // Enforce status = "IN" on the request filter so readSheetObjects_ filters it before slicing/paginating!
+  if (!req.params) req.params = {};
+  if (!req.params.filters || typeof req.params.filters !== "object") {
+    req.params.filters = {};
+  }
+  req.params.filters.status = "IN";
+
   const raw = readSheetObjects_("MembersCurrent", req, { strategy: "replace", defaultSortBy: "townHallLevel", defaultSortDir: "desc" });
 
   const allMems = readAllSheetObjects_("MembersCurrent");
   const requester = allMems.find(m => m.playerTag === authTag);
   const isManagement = requester && (requester.role === "coLeader" || requester.role === "leader");
 
-  // Lọc chỉ những người đang ở trong Clan (IN)
-  const rows = raw.rows
-    .filter(r => {
-      const s = String(getValCI_(r, "status") || "IN").toUpperCase();
-      return s === "IN";
-    })
-    .map(r => {
-      const item = {
-        playerTag: r.playerTag,
-        name: r.name,
-        role: roleVi_(String(r.role || "").trim()),
-        townHallLevel: r.townHallLevel,
-        warStars: r.warStars,
-        memberNote: r.memberNote,
-        adminNote: isManagement ? r.adminNote : ""
-      };
-      return item;
-    });
+  const rows = raw.rows.map(r => {
+    const item = {
+      playerTag: r.playerTag,
+      name: r.name,
+      role: roleVi_(String(r.role || "").trim()),
+      townHallLevel: r.townHallLevel,
+      warStars: r.warStars,
+      memberNote: r.memberNote,
+      adminNote: isManagement ? r.adminNote : ""
+    };
+    return item;
+  });
 
-  return jsonOut_({ ok: true, ts: new Date().toISOString(), resource: "clan-members", totalAfterFilter: rows.length, rows: rows });
+  return jsonOut_({ 
+    ok: true, 
+    ts: new Date().toISOString(), 
+    resource: "clan-members", 
+    totalAfterFilter: raw.totalAfterFilter, 
+    rows: rows 
+  });
 }
 
 

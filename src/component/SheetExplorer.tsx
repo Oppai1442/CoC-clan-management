@@ -76,7 +76,16 @@ const TECHNICAL_COLUMNS = new Set([
   "attackerTag",
   "defenderTag",
   "sourceId",
-  "confidenceWars"
+  "confidenceWars",
+  "smoothedRate",
+  "confidenceAttacks",
+  "confidenceFactor",
+  "missFactor",
+  "missPenalty",
+  "score",
+  "type",
+  "rosterStatus",
+  "reason"
 ]);
 
 const DATE_FIELDS = new Set([
