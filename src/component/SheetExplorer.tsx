@@ -85,7 +85,20 @@ const TECHNICAL_COLUMNS = new Set([
   "score",
   "type",
   "rosterStatus",
-  "reason"
+  "reason",
+  "cw_wars_joined",
+  "cw_attacks_done",
+  "cw_attacks_required",
+  "cw_missed_attacks",
+  "cwl_wars_joined",
+  "cwl_seasons_joined",
+  "cwl_rounds_present",
+  "cwl_attacks_done",
+  "cwl_attacks_required",
+  "cwl_missed_attacks",
+  "overall_attacks_done",
+  "overall_attacks_required",
+  "overall_missed_attacks"
 ]);
 
 const DATE_FIELDS = new Set([
@@ -839,7 +852,10 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+      <div className={clsx(
+        "flex-1 flex flex-col min-w-0 overflow-hidden relative transition-all duration-300",
+        selectedRowData && "lg:pr-[420px]"
+      )}>
         <div className="absolute inset-0 bg-[#222] z-0">
           <div className="w-full h-full opacity-5 bg-[radial-gradient(#444_1px,transparent_1px)] [background-size:16px_16px]" />
         </div>

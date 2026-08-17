@@ -402,7 +402,7 @@ function handleWarRecommend_(req) {
         type,
         attacksDone: 0,
         attacksRequired: 0,
-        missedAttacks: 999999,
+        missedAttacks: 0,
         warsJoined: 0,
         smoothedRate: 0,
         confidenceAttacks: 0,
@@ -465,6 +465,10 @@ function handleWarRecommend_(req) {
   });
 
   candidates.sort((a, b) => {
+    const aNoHist = (a.note === "no_history") ? 1 : 0;
+    const bNoHist = (b.note === "no_history") ? 1 : 0;
+    if (aNoHist !== bNoHist) return aNoHist - bNoHist;
+
     return (
       compareSmart_(a.score, b.score, "desc") ||
       compareSmart_(a.missedAttacks, b.missedAttacks, "asc") ||
@@ -916,8 +920,7 @@ function handleRaidMembers_(req) {
   }));
 
   const q = String(req.params.q || "").trim();
-  const filtersRaw = String(req.params.filters || "").trim();
-  const filters = filtersRaw ? safeJsonParse_(filtersRaw) : null;
+  const filters = parseFilters_(req);
   const sortBy = String(req.params.sortBy || "raidId").trim();
   const sortDir = (String(req.params.sortDir || "desc").toLowerCase() === "asc") ? "asc" : "desc";
   const limit = clampInt_(req.params.limit, 500, 0, 20000);
@@ -984,8 +987,7 @@ function readSheetObjects_(sheetName, req, opt) {
 
   // LOGIC MỚI: Nếu có filter hoặc search, ép buộc dùng chiến lược "replace" (quét toàn bộ)
   const q = String(req.params.q || "").trim();
-  const filtersRaw = String(req.params.filters || "").trim();
-  const filters = filtersRaw ? safeJsonParse_(filtersRaw) : null;
+  const filters = parseFilters_(req);
   
   let strategy = String(opt && opt.strategy ? opt.strategy : inferStrategy_(sheetName)).toLowerCase();
   if (q || (filters && Object.keys(filters).length > 0)) {
@@ -1128,6 +1130,14 @@ function clanDisplay_(name, tag) {
 
 function safeJsonParse_(s) {
   try { return JSON.parse(s); } catch (e) { return null; }
+}
+
+function parseFilters_(req) {
+  if (!req || !req.params || !req.params.filters) return null;
+  if (typeof req.params.filters === "object") return req.params.filters;
+  const raw = String(req.params.filters).trim();
+  if (raw === "" || raw === "[object Object]") return null;
+  return safeJsonParse_(raw);
 }
 
 function matchFilterExpr_(cell, exprRaw) {
