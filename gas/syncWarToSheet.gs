@@ -493,28 +493,46 @@ function upsertRowsById_(sheetName, idColIndex1Based, rows) {
   if (!sh) throw new Error("Missing sheet: " + sheetName);
 
   const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
   const startRow = 2;
+  const idColIdx = idColIndex1Based - 1;
 
-  const idToRow = new Map();
+  // Load existing data in memory
+  const idToRowMap = new Map();
   if (lastRow >= startRow) {
-    const ids = sh.getRange(startRow, idColIndex1Based, lastRow - startRow + 1, 1).getValues();
-    ids.forEach((v, i) => {
-      const id = String(v[0] || "");
-      if (id) idToRow.set(id, startRow + i);
+    const values = sh.getRange(startRow, 1, lastRow - startRow + 1, lastCol).getValues();
+    values.forEach(r => {
+      const id = String(r[idColIdx] || "").trim().toUpperCase();
+      if (id) {
+        idToRowMap.set(id, r);
+      }
     });
   }
 
-  const toAppend = [];
+  // Update or insert new rows in the map
   rows.forEach(r => {
-    const id = String(r[idColIndex1Based - 1] || "");
+    const id = String(r[idColIdx] || "").trim().toUpperCase();
     if (!id) return;
-    const rowIndex = idToRow.get(id);
-    if (rowIndex) sh.getRange(rowIndex, 1, 1, r.length).setValues([r]);
-    else toAppend.push(r);
+    
+    // Ensure the row has the correct length matching lastCol (pad or slice)
+    const normalizedRow = [...r];
+    while (normalizedRow.length < lastCol) normalizedRow.push("");
+    if (normalizedRow.length > lastCol) normalizedRow.splice(lastCol);
+    
+    idToRowMap.set(id, normalizedRow);
   });
 
-  if (toAppend.length) {
-    sh.getRange(sh.getLastRow() + 1, 1, toAppend.length, toAppend[0].length).setValues(toAppend);
+  // Convert the map values back to a list of rows
+  const newValues = Array.from(idToRowMap.values());
+
+  // Clear existing content from startRow onwards
+  if (lastRow >= startRow) {
+    sh.getRange(startRow, 1, lastRow - startRow + 1, lastCol).clearContent();
+  }
+
+  // Write new values in one batch
+  if (newValues.length > 0) {
+    sh.getRange(startRow, 1, newValues.length, lastCol).setValues(newValues);
   }
 }
 
@@ -615,7 +633,7 @@ function syncClanAndMembers_(cfg) {
   // 2. Lấy danh sách thành viên hiện tại từ API
   const membersApi = cocGet_(cfg, `/clans/${cfg.clanTagEnc}/members`, { limit: 50 });
   const items = membersApi.items || [];
-  const tags = items.map(m => m.tag).filter(Boolean);
+  const tags = items.map(m => String(m.tag || "").trim().toUpperCase()).filter(Boolean);
 
   // 3. Fetch thông tin chi tiết (theo batch và cache)
   const profileBatch = Number(cfg.playerProfileBatchSize || 10);
@@ -634,75 +652,76 @@ function syncClanAndMembers_(cfg) {
     const data = sh.getRange(2, 1, sh.getLastRow() - 1, headers.length).getValues();
     const tagIdx = idxMap["playerTag"];
     data.forEach(row => {
-      const tag = String(row[tagIdx] || "");
+      const tag = String(row[tagIdx] || "").trim().toUpperCase();
       if (tag) existingMap.set(tag, row);
     });
   }
 
-            // 5. MERGE DỮ LIỆU CŨ VÀ MỚI
-          const currentTagsSet = new Set(tags);
-          const snapRows = items.map(m => {
-            const tag = m.tag;
-            const p = profMap[tag];           // Dữ liệu từ API vừa fetch (hoặc cache)
-            const oldRow = existingMap.get(tag); // Dữ liệu cũ đang nằm trên sheet
-        
-            // Helper: Ưu tiên API > Nếu không có thì dùng Sheet cũ > Cuối cùng mới để trống
-            const getVal = (fieldName, apiVal) => {
-              if (apiVal !== undefined && apiVal !== null && apiVal !== "") return apiVal;
-              const i = idxMap[fieldName];
-              if (oldRow && i !== undefined) return oldRow[i];
-              return "";
-            };
-        
-            return cleanRow_([
-              nowIso,
-              cfg.clanTag,
-              clanName,
-              tag || "",
-              m.name || "",
-              m.role || "",
-              m.expLevel || "",
-              m.trophies || "",
-              m.versusTrophies || "",
-              m.donations || "",
-              m.donationsReceived || "",
-              // builderBaseTrophies: ưu tiên profile (p) > member list (m) > sheet cũ
-              getVal("builderBaseTrophies", p ? p.builderBaseTrophies : (m.builderBaseTrophies || "")),   
-              m.clanRank || "",
-              m.previousClanRank || "",
-              (m.league && m.league.name) ? m.league.name : "",
-              getVal("warPreference", p ? p.warPreference : ""),
-              getVal("townHallLevel", p ? p.townHallLevel : ""),
-              getVal("builderHallLevel", p ? p.builderHallLevel : ""),
-              getVal("warStars", p ? p.warStars : ""),
-              getVal("clanCapitalContributions", p ? p.clanCapitalContributions : ""),
-              // Bảo toàn ghi chú (API không có nên sẽ luôn lấy từ sheet cũ)
-              getVal("adminNote", ""),
-              getVal("memberNote", ""),
-              "IN", // Đang ở trong Clan
-              getVal("token", "")
-            ]);
-          });
-      
-          // 5.1 Xác định những người đã RỜI CLAN (Có trong sheet cũ nhưng không có trong API mới)
-          const outRows = [];
-          existingMap.forEach((oldRow, tag) => {
-            if (!currentTagsSet.has(tag)) {
-              // Người này đã out. Cập nhật status = OUT, giữ nguyên Note
-              const updatedRow = [...oldRow];
-              // Đảm bảo hàng có đủ độ dài cho cột status mới
-              while (updatedRow.length < SHEETS.MembersCurrent.headers.length) updatedRow.push("");
-              updatedRow[idxMap["status"]] = "OUT";
-              updatedRow[idxMap["ts"]] = nowIso;
-              outRows.push(cleanRow_(updatedRow));
-            }
-          });
-      
-          const allRowsToSync = [...snapRows, ...outRows];
-      
-        // 6. CẬP NHẬT DỮ LIỆU
-        // playerTag nằm ở cột thứ 4 (index 1-based)
-        upsertRowsById_("MembersCurrent", 4, allRowsToSync);
+  // 5. MERGE DỮ LIỆU CŨ VÀ MỚI
+  const currentTagsSet = new Set(tags);
+  const snapRows = items.map(m => {
+    const tag = String(m.tag || "").trim().toUpperCase();
+    const p = profMap[tag];           // Dữ liệu từ API vừa fetch (hoặc cache)
+    const oldRow = existingMap.get(tag); // Dữ liệu cũ đang nằm trên sheet
+
+    // Helper: Ưu tiên API > Nếu không có thì dùng Sheet cũ > Cuối cùng mới để trống
+    const getVal = (fieldName, apiVal) => {
+      if (apiVal !== undefined && apiVal !== null && apiVal !== "") return apiVal;
+      const i = idxMap[fieldName];
+      if (oldRow && i !== undefined) return oldRow[i];
+      return "";
+    };
+
+    return cleanRow_([
+      nowIso,
+      cfg.clanTag,
+      clanName,
+      tag || "",
+      m.name || "",
+      m.role || "",
+      m.expLevel || "",
+      m.trophies || "",
+      m.versusTrophies || "",
+      m.donations || "",
+      m.donationsReceived || "",
+      // builderBaseTrophies: ưu tiên profile (p) > member list (m) > sheet cũ
+      getVal("builderBaseTrophies", p ? p.builderBaseTrophies : (m.builderBaseTrophies || "")),   
+      m.clanRank || "",
+      m.previousClanRank || "",
+      (m.league && m.league.name) ? m.league.name : "",
+      getVal("warPreference", p ? p.warPreference : ""),
+      getVal("townHallLevel", p ? p.townHallLevel : ""),
+      getVal("builderHallLevel", p ? p.builderHallLevel : ""),
+      getVal("warStars", p ? p.warStars : ""),
+      getVal("clanCapitalContributions", p ? p.clanCapitalContributions : ""),
+      // Bảo toàn ghi chú (API không có nên sẽ luôn lấy từ sheet cũ)
+      getVal("adminNote", ""),
+      getVal("memberNote", ""),
+      "IN", // Đang ở trong Clan
+      getVal("token", "")
+    ]);
+  });
+
+  // 5.1 Xác định những người đã RỜI CLAN (Có trong sheet cũ nhưng không có trong API mới)
+  const outRows = [];
+  existingMap.forEach((oldRow, tag) => {
+    const cleanTag = String(tag).trim().toUpperCase();
+    if (!currentTagsSet.has(cleanTag)) {
+      // Người này đã out. Cập nhật status = OUT, giữ nguyên Note
+      const updatedRow = [...oldRow];
+      // Đảm bảo hàng có đủ độ dài cho cột status mới
+      while (updatedRow.length < SHEETS.MembersCurrent.headers.length) updatedRow.push("");
+      updatedRow[idxMap["status"]] = "OUT";
+      updatedRow[idxMap["ts"]] = nowIso;
+      outRows.push(cleanRow_(updatedRow));
+    }
+  });
+
+  const allRowsToSync = [...snapRows, ...outRows];
+
+  // 6. CẬP NHẬT DỮ LIỆU
+  // playerTag nằm ở cột thứ 4 (index 1-based)
+  upsertRowsById_("MembersCurrent", 4, allRowsToSync);
   // 7. Xử lý MemberEvents (giữ nguyên logic cũ)
   const props = PropertiesService.getScriptProperties();
   const prevJson = props.getProperty("MEMBER_STATE_JSON");
