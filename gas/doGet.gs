@@ -1086,7 +1086,8 @@ function readSheetObjects_(sheetName, req, opt) {
     const qq = normalizeSearchStr_(q).trim();
     if (qq) {
       rows = rows.filter(row => {
-        return Object.values(row).some(val => {
+        return Object.keys(row).some(k => {
+          const val = row[k];
           if (val === null || val === undefined) return false;
           return normalizeSearchStr_(val).includes(qq);
         });
@@ -1221,6 +1222,7 @@ function tryParseNumber_(x) {
 }
 
 function tryParseDate_(x) {
+  if (x instanceof Date || (x && Object.prototype.toString.call(x) === '[object Date]')) return x;
   if (x === null || x === undefined) return null;
   const s = String(x).trim();
   if (!s) return null;
@@ -1432,6 +1434,55 @@ function handlePlayerVerify_(req) {
   const token = String(req.params.token || "").trim();
   if (!tag || !token) return jsonOut_({ ok: false, error: "Missing tag or token" });
 
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("MembersCurrent");
+  if (!sh) return jsonOut_({ ok: false, error: "Sheet MembersCurrent not found" });
+
+  const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  const idxMap = {};
+  headers.forEach((h, i) => idxMap[h] = i);
+
+  const tagIdx = idxMap["playerTag"];
+  const tokenIdx = idxMap["token"];
+  const statusIdx = idxMap["status"];
+
+  if (tagIdx === undefined || tokenIdx === undefined) {
+    return jsonOut_({ ok: false, error: "Missing playerTag or token columns in sheet" });
+  }
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return jsonOut_({ ok: false, error: "No players in members list" });
+
+  const values = sh.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  let playerRowIdx = -1;
+  let playerRowData = null;
+
+  for (let i = 0; i < values.length; i++) {
+    const pTag = String(values[i][tagIdx] || "").trim();
+    if (pTag.toLowerCase() === tag.toLowerCase()) {
+      playerRowIdx = i + 2;
+      playerRowData = values[i];
+      break;
+    }
+  }
+
+  if (playerRowIdx === -1 || !playerRowData) {
+    return jsonOut_({ ok: false, error: "Player not found in clan members list" });
+  }
+
+  const status = String(playerRowData[statusIdx] || "IN").toUpperCase();
+  if (status !== "IN") {
+    return jsonOut_({ ok: false, error: "Player has left the clan" });
+  }
+
+  const existingSessionToken = String(playerRowData[tokenIdx] || "").trim();
+
+  // 1. If the token matches the session token in the sheet, it's a valid session token (auto login)
+  if (existingSessionToken && existingSessionToken === token) {
+    return jsonOut_({ ok: true, status: "ok", token: token });
+  }
+
+  // 2. Otherwise, treat it as a CoC API token (one-time token) and verify against CoC API
   const cfg = getCfg_();
   const tagEnc = encodeURIComponent(tag.startsWith("#") ? tag : "#" + tag);
   const url = cfg.baseUrl.replace(/\/$/, "") + "/players/" + tagEnc + "/verifytoken";
@@ -1453,7 +1504,10 @@ function handlePlayerVerify_(req) {
 
     if (code >= 200 && code < 300) {
       if (result.status === "ok") {
-        return jsonOut_({ ok: true, status: "ok", token: token });
+        // CoC API token verified! Generate a new session token, save to sheet, and return it.
+        const newSessionToken = md5Hex_(`${tag}|${Date.now()}|${Math.random()}`);
+        sh.getRange(playerRowIdx, tokenIdx + 1).setValue(newSessionToken);
+        return jsonOut_({ ok: true, status: "ok", token: newSessionToken });
       } else {
         return jsonOut_({ ok: true, status: "invalid" });
       }
@@ -1647,32 +1701,6 @@ function normalizeSearchStr_(str) {
     .replace(/đ/g, "d");
 }
 
-function verifyCocToken_(tag, token) {
-  if (!tag || !token) return false;
-  const cfg = getCfg_();
-  const tagEnc = encodeURIComponent(tag.startsWith("#") ? tag : "#" + tag);
-  const url = cfg.baseUrl.replace(/\/$/, "") + "/players/" + tagEnc + "/verifytoken";
-  try {
-    const resp = UrlFetchApp.fetch(url, {
-      method: "post",
-      headers: {
-        "Authorization": "Bearer " + cfg.token,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-      },
-      payload: JSON.stringify({ token: token }),
-      muteHttpExceptions: true
-    });
-    if (resp.getResponseCode() === 200) {
-      const res = JSON.parse(resp.getContentText());
-      return res.status === "ok";
-    }
-  } catch (e) {
-    Logger.log("Verify error: " + String(e));
-  }
-  return false;
-}
-
 function handleAnnouncements_(req) {
   const raw = readSheetObjects_("Announcements", req, { strategy: "replace", defaultSortBy: "ts", defaultSortDir: "desc" });
   return jsonOut_({
@@ -1700,9 +1728,21 @@ function handleAnnouncementsCreate_(req) {
     return jsonOut_({ ok: false, error: "Only player #VCVQQCUJ is authorized to create announcements" });
   }
 
-  // Stateless CoC Token Verification
-  if (!verifyCocToken_(authTag, token)) {
-    return jsonOut_({ ok: false, error: "Authentication failed. Invalid game token." });
+  // Verify auth token in MembersCurrent
+  const members = readAllSheetObjects_("MembersCurrent");
+  const player = members.find(m => String(m.playerTag || "").trim().toUpperCase() === authTag);
+  if (!player) {
+    return jsonOut_({ ok: false, error: "Author not found in current members list" });
+  }
+  
+  const status = String(getValCI_(player, "status") || "IN").toUpperCase();
+  if (status !== "IN") {
+    return jsonOut_({ ok: false, error: "Author is no longer in the clan" });
+  }
+
+  const existingToken = String(getValCI_(player, "token") || "").trim();
+  if (!existingToken || existingToken !== token) {
+    return jsonOut_({ ok: false, error: "Authentication failed. Session expired or invalid token." });
   }
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1718,7 +1758,7 @@ function handleAnnouncementsCreate_(req) {
     id,
     nowIso,
     authTag,
-    "#VCVQQCUJ", // authorName or tag
+    player.name || "",
     title,
     content,
     "", // imageUrl (legacy column, leave empty)
@@ -1744,9 +1784,16 @@ function handleAnnouncementsDelete_(req) {
     return jsonOut_({ ok: false, error: "Only player #VCVQQCUJ is authorized to delete announcements" });
   }
 
-  // Stateless CoC Token Verification
-  if (!verifyCocToken_(authTag, token)) {
-    return jsonOut_({ ok: false, error: "Authentication failed. Invalid game token." });
+  // Verify auth token in MembersCurrent
+  const members = readAllSheetObjects_("MembersCurrent");
+  const player = members.find(m => String(m.playerTag || "").trim().toUpperCase() === authTag);
+  if (!player) {
+    return jsonOut_({ ok: false, error: "Author not found in current members list" });
+  }
+  
+  const existingToken = String(getValCI_(player, "token") || "").trim();
+  if (!existingToken || existingToken !== token) {
+    return jsonOut_({ ok: false, error: "Authentication failed. Session expired or invalid token." });
   }
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();

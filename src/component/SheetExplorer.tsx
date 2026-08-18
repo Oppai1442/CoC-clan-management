@@ -471,11 +471,11 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
 
     if (isChipColumn(columnKey)) {
       const raw = String(val).toLowerCase();
-      const tone = raw.includes("win") || raw.includes("picked") || raw === "in" || raw === "cw" || raw === "cwl"
+      const tone = raw.includes("win") || raw.includes("picked") || raw === "in" || raw === "cw" || raw === "cwl" || raw === "join" || raw === "promote"
         ? "bg-green-700/10 text-green-800 border-green-700/20"
-        : raw.includes("lose") || raw.includes("loss") || raw.includes("miss") || raw.includes("no_history") || raw.includes("out")
+        : raw.includes("lose") || raw.includes("loss") || raw.includes("miss") || raw.includes("no_history") || raw === "out" || raw === "leave" || raw === "demote"
           ? "bg-red-700/10 text-red-800 border-red-700/20"
-          : raw.includes("draw") || raw.includes("bench")
+          : raw.includes("draw") || raw === "bench" || raw === "name_change" || raw === "role_change"
             ? "bg-yellow-700/10 text-yellow-800 border-yellow-700/20"
             : "bg-[#4a3b2a]/10 text-[#4a3b2a] border-[#4a3b2a]/20";
       return <span className={clsx("inline-flex px-2 py-0.5 rounded-full border text-[10px] font-black uppercase", tone)}>{display}</span>;
@@ -546,7 +546,12 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     return `${String(base)}-${idx}`;
   };
 
-  const baseVisibleHeaders = useMemo(() => headers.filter(h => !TECHNICAL_COLUMNS.has(h)), [headers]);
+  const baseVisibleHeaders = useMemo(() => {
+    return headers.filter(h => {
+      if (h === "type" && activeSheetName === "Member Events") return true;
+      return !TECHNICAL_COLUMNS.has(h);
+    });
+  }, [headers, activeSheetName]);
   const visibleHeaders = useMemo(
     () => baseVisibleHeaders.filter(h => !hiddenColumns[h]),
     [baseVisibleHeaders, hiddenColumns]

@@ -34,12 +34,6 @@ const SHEETS = {
       "youtubeUrl"
     ]
   },
-  data: {
-    headers: [
-      "access_time",
-      "link"
-    ]
-  },
   ClanCurrent: {
     headers: [
       "ts",
