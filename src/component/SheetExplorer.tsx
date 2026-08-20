@@ -615,12 +615,12 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     }
 
     if (activeSheetName === "War Stats (Current)") {
-      const topScore = Math.max(0, ...shown.map(r => numberFrom(r.overall_score)));
+      const topScore = Math.max(0, ...shown.map(r => numberFrom(r.overall_completion_rate_pct)));
       return [
         { label: t("summary.members"), value: formatNum(count) },
         { label: t("summary.avgCompletion"), value: `${formatNum(avg("overall_completion_rate_pct"))}%` },
         { label: t("summary.missingAttacks"), value: formatNum(sum("overall_missed_attacks")) },
-        { label: t("summary.topScore"), value: formatNum(topScore) }
+        { label: t("summary.topCompletion"), value: `${formatNum(topScore)}%` }
       ];
     }
 
