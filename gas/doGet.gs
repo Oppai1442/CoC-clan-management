@@ -335,8 +335,7 @@ function handleWarStatsCurrent_(req) {
       overall_attacks_done: toNum0_(s.overall_attacks_done),
       overall_attacks_required: toNum0_(s.overall_attacks_required),
       overall_missed_attacks: toNum0_(s.overall_missed_attacks),
-      overall_completion_rate_pct: s.overall_completion_rate_pct !== undefined ? s.overall_completion_rate_pct : "",
-      overall_score: toNum0_(s.overall_score),
+      overall_completion_rate_pct: s.overall_completion_rate_pct !== undefined ? s.overall_completion_rate_pct : ""
     });
   });
 
