@@ -63,7 +63,8 @@ const SHEETS = {
       "memberNote",
       "status", // Cột mới để biết còn trong clan không
       "token",
-      "firstSeen"
+      "firstSeen",
+      "memberDays"
     ]
   },
 
@@ -686,6 +687,21 @@ function syncClanAndMembers_(cfg) {
     // Nếu trước đó trạng thái là OUT (đã rời clan), nay quay lại -> Reset ngày vào clan bằng mốc hiện tại
     const firstSeen = (oldStatus === "OUT") ? nowIso : (oldFirstSeen || nowIso);
 
+    // Tính lũy kế số ngày ở trong clan
+    let memberDays = 0;
+    if (oldRow && idxMap["memberDays"] !== undefined) {
+      memberDays = Number(oldRow[idxMap["memberDays"]]) || 0;
+    }
+
+    if (oldRow && oldStatus === "IN") {
+      const lastTs = oldRow[idxMap["ts"]];
+      if (lastTs) {
+        const diffMs = new Date(nowIso).getTime() - new Date(lastTs).getTime();
+        const diffDays = diffMs / (1000 * 60 * 60 * 24);
+        memberDays += Math.max(0, diffDays);
+      }
+    }
+
     return cleanRow_([
       nowIso,
       cfg.clanTag,
@@ -713,7 +729,8 @@ function syncClanAndMembers_(cfg) {
       getVal("memberNote", ""),
       "IN", // Đang ở trong Clan
       getVal("token", ""),
-      firstSeen
+      firstSeen,
+      memberDays
     ]);
   });
 
@@ -722,13 +739,31 @@ function syncClanAndMembers_(cfg) {
   existingMap.forEach((oldRow, tag) => {
     const cleanTag = String(tag).trim().toUpperCase();
     if (!currentTagsSet.has(cleanTag)) {
-      // Người này đã out. Cập nhật status = OUT, giữ nguyên Note
-      const updatedRow = [...oldRow];
-      // Đảm bảo hàng có đủ độ dài cho cột status mới + firstSeen mới
-      while (updatedRow.length < SHEETS.MembersCurrent.headers.length) updatedRow.push("");
-      updatedRow[idxMap["status"]] = "OUT";
-      updatedRow[idxMap["ts"]] = nowIso;
-      outRows.push(cleanRow_(updatedRow));
+      const oldStatus = idxMap["status"] !== undefined ? String(oldRow[idxMap["status"]]).toUpperCase() : "";
+      if (oldStatus === "IN") {
+        // Vừa mới out! Cập nhật status = OUT, tích lũy đoạn thời gian cuối từ lần sync trước đến giờ
+        const updatedRow = [...oldRow];
+        while (updatedRow.length < SHEETS.MembersCurrent.headers.length) updatedRow.push("");
+        
+        let memberDays = 0;
+        if (idxMap["memberDays"] !== undefined) {
+          memberDays = Number(oldRow[idxMap["memberDays"]]) || 0;
+        }
+
+        const lastTs = oldRow[idxMap["ts"]];
+        if (lastTs) {
+          const diffMs = new Date(nowIso).getTime() - new Date(lastTs).getTime();
+          const diffDays = diffMs / (1000 * 60 * 60 * 24);
+          memberDays += Math.max(0, diffDays);
+        }
+
+        updatedRow[idxMap["status"]] = "OUT";
+        updatedRow[idxMap["ts"]] = nowIso;
+        if (idxMap["memberDays"] !== undefined) {
+          updatedRow[idxMap["memberDays"]] = memberDays;
+        }
+        outRows.push(cleanRow_(updatedRow));
+      }
     }
   });
 
