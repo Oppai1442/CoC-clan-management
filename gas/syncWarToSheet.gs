@@ -680,8 +680,11 @@ function syncClanAndMembers_(cfg) {
       return "";
     };
 
+    const oldStatus = (oldRow && idxMap["status"] !== undefined) ? String(oldRow[idxMap["status"]]).toUpperCase() : "IN";
     const oldFirstSeen = (oldRow && idxMap["firstSeen"] !== undefined) ? oldRow[idxMap["firstSeen"]] : "";
-    const firstSeen = oldFirstSeen || nowIso;
+    
+    // Nếu trước đó trạng thái là OUT (đã rời clan), nay quay lại -> Reset ngày vào clan bằng mốc hiện tại
+    const firstSeen = (oldStatus === "OUT") ? nowIso : (oldFirstSeen || nowIso);
 
     return cleanRow_([
       nowIso,
