@@ -223,12 +223,7 @@ function handleWarMembers_(req) {
     const m = memberMap.get(tag) || {};
     const status = String(getValCI_(m, "status") || "OUT").toUpperCase();
 
-    const fs = m.firstSeen ? new Date(m.firstSeen) : null;
-    let days = "";
-    if (fs && !isNaN(fs.getTime())) {
-      const diffMs = new Date().getTime() - fs.getTime();
-      days = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
-    }
+    const days = Math.max(0, Math.floor(Number(m.memberDays || 0)));
 
     return {
       playerTag: r.playerTag,
@@ -241,7 +236,7 @@ function handleWarMembers_(req) {
       missingAttacks: num_(r.missingAttacks),
       isInClan: (status === "IN"),
       firstSeen: m.firstSeen || "—",
-      daysInClan: days !== "" ? `${days} ngày` : "—"
+      daysInClan: `${days} ngày`
     };
   });
 
@@ -1668,12 +1663,7 @@ function handleClanMembers_(req) {
   const isManagement = requester && (requester.role === "coLeader" || requester.role === "leader");
 
   const rows = raw.rows.map(r => {
-    const fs = r.firstSeen ? new Date(r.firstSeen) : null;
-    let days = "";
-    if (fs && !isNaN(fs.getTime())) {
-      const diffMs = new Date().getTime() - fs.getTime();
-      days = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
-    }
+    const days = Math.max(0, Math.floor(Number(r.memberDays || 0)));
     const item = {
       playerTag: r.playerTag,
       name: r.name,
@@ -1683,7 +1673,7 @@ function handleClanMembers_(req) {
       memberNote: r.memberNote,
       adminNote: isManagement ? r.adminNote : "",
       firstSeen: r.firstSeen || "—",
-      daysInClan: days !== "" ? `${days} ngày` : "—"
+      daysInClan: `${days} ngày`
     };
     return item;
   });
