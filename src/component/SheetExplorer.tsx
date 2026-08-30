@@ -1306,7 +1306,13 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                               )}
                             >
                               <div className="flex items-center gap-2">
-                                <span>{formatValue((r as any)[h], h)}</span>
+                                <span className={clsx(
+                                  (h === "playerName" || h === "name" || h === "attackerName") && r.isInClan === false && "text-orange-950/50 italic font-medium"
+                                )}>
+                                  {(h === "playerName" || h === "name" || h === "attackerName") && r.isInClan === false
+                                    ? `(*) ${formatValue((r as any)[h], h)}`
+                                    : formatValue((r as any)[h], h)}
+                                </span>
                                 {canNote && (h === "playerName" || h === "name" || h === "attackerName") && (
                                   <button
                                     onClick={e => {
