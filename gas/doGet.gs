@@ -208,16 +208,31 @@ function handleWarMembers_(req) {
     defaultSortDir: "desc"
   });
 
-  const rows = raw.rows.map(r => ({
-    playerTag: r.playerTag,
-    playerName: r.playerName,
-    mapPosition: r.mapPosition,
-    attacksDone: num_(r.attacksDone),
-    attacksRequired: num_(r.attacksRequired),
-    starsTotal: num_(r.starsTotal),
-    bestDestruction: num_(r.bestDestruction),
-    missingAttacks: num_(r.missingAttacks),
-  }));
+  // Read current member status to identify who left
+  const members = readAllSheetObjects_("MembersCurrent");
+  const memberStatusMap = new Map();
+  members.forEach(m => {
+    const tag = String(m.playerTag || "").trim().toUpperCase();
+    if (tag) {
+      memberStatusMap.set(tag, String(getValCI_(m, "status") || "IN").toUpperCase());
+    }
+  });
+
+  const rows = raw.rows.map(r => {
+    const tag = String(r.playerTag || "").trim().toUpperCase();
+    const status = memberStatusMap.get(tag) || "OUT"; // default to OUT if they are completely missing from MembersCurrent
+    return {
+      playerTag: r.playerTag,
+      playerName: r.playerName,
+      mapPosition: r.mapPosition,
+      attacksDone: num_(r.attacksDone),
+      attacksRequired: num_(r.attacksRequired),
+      starsTotal: num_(r.starsTotal),
+      bestDestruction: num_(r.bestDestruction),
+      missingAttacks: num_(r.missingAttacks),
+      isInClan: (status === "IN")
+    };
+  });
 
   return jsonOut_({
     ok: true,
