@@ -62,7 +62,8 @@ const SHEETS = {
       "adminNote",
       "memberNote",
       "status", // Cột mới để biết còn trong clan không
-      "token"
+      "token",
+      "firstSeen"
     ]
   },
 
@@ -679,6 +680,9 @@ function syncClanAndMembers_(cfg) {
       return "";
     };
 
+    const oldFirstSeen = (oldRow && idxMap["firstSeen"] !== undefined) ? oldRow[idxMap["firstSeen"]] : "";
+    const firstSeen = oldFirstSeen || nowIso;
+
     return cleanRow_([
       nowIso,
       cfg.clanTag,
@@ -705,7 +709,8 @@ function syncClanAndMembers_(cfg) {
       getVal("adminNote", ""),
       getVal("memberNote", ""),
       "IN", // Đang ở trong Clan
-      getVal("token", "")
+      getVal("token", ""),
+      firstSeen
     ]);
   });
 
@@ -716,7 +721,7 @@ function syncClanAndMembers_(cfg) {
     if (!currentTagsSet.has(cleanTag)) {
       // Người này đã out. Cập nhật status = OUT, giữ nguyên Note
       const updatedRow = [...oldRow];
-      // Đảm bảo hàng có đủ độ dài cho cột status mới
+      // Đảm bảo hàng có đủ độ dài cho cột status mới + firstSeen mới
       while (updatedRow.length < SHEETS.MembersCurrent.headers.length) updatedRow.push("");
       updatedRow[idxMap["status"]] = "OUT";
       updatedRow[idxMap["ts"]] = nowIso;

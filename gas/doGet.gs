@@ -210,17 +210,26 @@ function handleWarMembers_(req) {
 
   // Read current member status to identify who left
   const members = readAllSheetObjects_("MembersCurrent");
-  const memberStatusMap = new Map();
+  const memberMap = new Map();
   members.forEach(m => {
     const tag = String(m.playerTag || "").trim().toUpperCase();
     if (tag) {
-      memberStatusMap.set(tag, String(getValCI_(m, "status") || "IN").toUpperCase());
+      memberMap.set(tag, m);
     }
   });
 
   const rows = raw.rows.map(r => {
     const tag = String(r.playerTag || "").trim().toUpperCase();
-    const status = memberStatusMap.get(tag) || "OUT"; // default to OUT if they are completely missing from MembersCurrent
+    const m = memberMap.get(tag) || {};
+    const status = String(getValCI_(m, "status") || "OUT").toUpperCase();
+
+    const fs = m.firstSeen ? new Date(m.firstSeen) : null;
+    let days = "";
+    if (fs && !isNaN(fs.getTime())) {
+      const diffMs = new Date().getTime() - fs.getTime();
+      days = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+    }
+
     return {
       playerTag: r.playerTag,
       playerName: r.playerName,
@@ -230,7 +239,9 @@ function handleWarMembers_(req) {
       starsTotal: num_(r.starsTotal),
       bestDestruction: num_(r.bestDestruction),
       missingAttacks: num_(r.missingAttacks),
-      isInClan: (status === "IN")
+      isInClan: (status === "IN"),
+      firstSeen: m.firstSeen || "—",
+      daysInClan: days !== "" ? `${days} ngày` : "—"
     };
   });
 
@@ -1657,6 +1668,12 @@ function handleClanMembers_(req) {
   const isManagement = requester && (requester.role === "coLeader" || requester.role === "leader");
 
   const rows = raw.rows.map(r => {
+    const fs = r.firstSeen ? new Date(r.firstSeen) : null;
+    let days = "";
+    if (fs && !isNaN(fs.getTime())) {
+      const diffMs = new Date().getTime() - fs.getTime();
+      days = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+    }
     const item = {
       playerTag: r.playerTag,
       name: r.name,
@@ -1664,7 +1681,9 @@ function handleClanMembers_(req) {
       townHallLevel: r.townHallLevel,
       warStars: r.warStars,
       memberNote: r.memberNote,
-      adminNote: isManagement ? r.adminNote : ""
+      adminNote: isManagement ? r.adminNote : "",
+      firstSeen: r.firstSeen || "—",
+      daysInClan: days !== "" ? `${days} ngày` : "—"
     };
     return item;
   });
