@@ -74,6 +74,7 @@ function dispatchRequest_(req) {
     if (route === "/api/v1/health") return jsonOut_({ ok: true, ts: new Date().toISOString() });
 
     // Announcements
+    if (route === "/api/v1/analytics") return handleAnalytics_(req);
     if (route === "/api/v1/announcements") return handleAnnouncements_(req);
     if (route === "/api/v1/announcements/create") return handleAnnouncementsCreate_(req);
     if (route === "/api/v1/announcements/delete") return handleAnnouncementsDelete_(req);
@@ -175,15 +176,14 @@ function handleWarHistory_(req) {
     opponentTag: r.opponentTag,
     opponentName: r.opponentName,
     state: r.state,
-    preparationStartTime: r.preparationStartTime,
+    preparationStartTime: r.preparationStartTime || r.prepStart,
     startTime: r.startTime,
     endTime: r.endTime,
     teamSize: r.teamSize,
-    attacksPerMember: r.attacksPerMember,
     clanStars: num_(r.clanStars),
     opponentStars: num_(r.oppStars),
-    clanDestruction: num_(r.clanDestruction),
-    opponentDestruction: num_(r.oppDestruction),
+    clanDestruction: normalizePercentValue_(r.clanDestruction),
+    opponentDestruction: normalizePercentValue_(r.oppDestruction),
     result: r.result
   }));
 
@@ -232,7 +232,7 @@ function handleWarMembers_(req) {
       attacksDone: num_(r.attacksDone),
       attacksRequired: num_(r.attacksRequired),
       starsTotal: num_(r.starsTotal),
-      bestDestruction: num_(r.bestDestruction),
+      bestDestruction: normalizePercentValue_(r.bestDestruction),
       missingAttacks: num_(r.missingAttacks),
       isInClan: (status === "IN"),
       firstSeen: m.firstSeen || "—",
@@ -262,12 +262,14 @@ function handleWarAttacks_(req) {
   });
 
   const rows = raw.rows.map(r => ({
-    ts: r.ts,
     attackerTag: r.attackerTag,
     attackerName: r.attackerName,
+    attackerPosition: num_(r.attackerMapPosition),
     defenderTag: r.defenderTag,
+    defenderName: String(r.defenderName || r.defenderTag || "").trim(),
+    defenderPosition: num_(r.defenderMapPosition),
     stars: num_(r.stars),
-    destructionPct: num_(r.destructionPct),
+    destructionPct: normalizePercentValue_(r.destructionPct),
     order: num_(r.order)
   }));
 
@@ -341,6 +343,7 @@ function handleWarStatsCurrent_(req) {
       cw_attacks_done: toNum0_(s.cw_attacks_done),
       cw_attacks_required: toNum0_(s.cw_attacks_required),
       cw_missed_attacks: toNum0_(s.cw_missed_attacks),
+      cw_attacks: `${toNum0_(s.cw_attacks_done)}/${toNum0_(s.cw_attacks_required)}`,
       cw_completion_rate_pct: s.cw_completion_rate_pct !== undefined ? s.cw_completion_rate_pct : "",
 
       // CWL
@@ -350,12 +353,14 @@ function handleWarStatsCurrent_(req) {
       cwl_attacks_done: toNum0_(s.cwl_attacks_done),
       cwl_attacks_required: toNum0_(s.cwl_attacks_required),
       cwl_missed_attacks: toNum0_(s.cwl_missed_attacks),
+      cwl_attacks: `${toNum0_(s.cwl_attacks_done)}/${toNum0_(s.cwl_attacks_required)}`,
       cwl_completion_rate_pct: s.cwl_completion_rate_pct !== undefined ? s.cwl_completion_rate_pct : "",
 
       // Overall
       overall_attacks_done: toNum0_(s.overall_attacks_done),
       overall_attacks_required: toNum0_(s.overall_attacks_required),
       overall_missed_attacks: toNum0_(s.overall_missed_attacks),
+      overall_attacks: `${toNum0_(s.overall_attacks_done)}/${toNum0_(s.overall_attacks_required)}`,
       overall_completion_rate_pct: s.overall_completion_rate_pct !== undefined ? s.overall_completion_rate_pct : ""
     });
   });
@@ -483,6 +488,7 @@ function handleWarRecommend_(req) {
     const warsJoined = pack.warsJoined;
     const missed = Math.max(0, reqd - done);
     const missRate = (reqd > 0) ? (missed / reqd) : 0;
+    const observedRate = (reqd > 0) ? (done / reqd) : 0;
 
     // Bayesian smoothing: avoid "1 war full hits => 100%"
     const smoothedRate = (reqd > 0)
@@ -492,13 +498,17 @@ function handleWarRecommend_(req) {
     const confidenceAttacks = (reqd > 0) ? (reqd / (reqd + k)) : 0;
     const confidenceWars = (warsJoined > 0) ? (warsJoined / (warsJoined + kWars)) : 0;
 
-    // Penalize by miss rate, not absolute misses, so large sample sizes are not crushed unfairly.
+    // Keep these as diagnostics/tie-breakers. The old formula multiplied
+    // smoothed completion by confidence and a second miss penalty, which double-
+    // counted both small samples and missed attacks and compressed scores heavily.
     const missPenalty = 1 / (1 + 2 * missRate);
 
     const confidence = (0.7 * confidenceAttacks + 0.3 * confidenceWars);
-    const confidenceFactor = 0.35 + 0.65 * confidence;
-    const missFactor = 0.7 + 0.3 * missPenalty;
-    const score = clamp01_(smoothedRate * confidenceFactor * missFactor);
+    const confidenceFactor = confidence;
+    const missFactor = missPenalty;
+    // Posterior mean is the actual recommendation score. Sample size already
+    // affects it through alpha/beta; confidence is used only as a tie-breaker.
+    const score = clamp01_(smoothedRate);
 
     candidates.push({
       playerTag: tag,
@@ -511,9 +521,11 @@ function handleWarRecommend_(req) {
       missedAttacks: missed,
       warsJoined,
 
+      observedRatePct: Math.round(observedRate * 1000) / 10,
       smoothedRate: round3_(smoothedRate),
       confidenceAttacks: round3_(confidenceAttacks),
       confidenceWars: round3_(confidenceWars),
+      confidencePct: Math.round(confidence * 1000) / 10,
       missPenalty: round3_(missPenalty),
       confidenceFactor: round3_(confidenceFactor),
       missFactor: round3_(missFactor),
@@ -531,6 +543,7 @@ function handleWarRecommend_(req) {
 
     return (
       compareSmart_(a.score, b.score, "desc") ||
+      compareSmart_(a.confidencePct, b.confidencePct, "desc") ||
       compareSmart_(a.missedAttacks, b.missedAttacks, "asc") ||
       compareSmart_(a.attacksRequired, b.attacksRequired, "desc") ||
       compareSmart_(a.warsJoined, b.warsJoined, "desc") ||
@@ -611,7 +624,9 @@ function normalizeWarStatsRow_(r) {
   s.cw_attacks_done = toNum0_(pickFirst_(r, ["cw_attacks_done", "cwAttacksDone"], 0));
   s.cw_attacks_required = toNum0_(pickFirst_(r, ["cw_attacks_required", "cwAttacksRequired"], 0));
   s.cw_missed_attacks = Math.max(0, s.cw_attacks_required - s.cw_attacks_done);
-  s.cw_completion_rate_pct = toNum0_(pickFirst_(r, ["cw_completion_rate_pct", "cwCompletionRatePct"], 0));
+  s.cw_completion_rate_pct = s.cw_attacks_required > 0
+    ? Math.round((s.cw_attacks_done / s.cw_attacks_required) * 1000) / 10
+    : null;
   s.cw_score = toNum0_(pickFirst_(r, ["cw_score", "cwScore"], 0));
 
   // CWL (season=7 rounds) -> required = rounds present (1 attack each round)
@@ -620,21 +635,49 @@ function normalizeWarStatsRow_(r) {
   s.cwl_attacks_done = toNum0_(pickFirst_(r, ["cwl_attacks_done", "cwlAttacksDone"], 0));
   s.cwl_attacks_required = toNum0_(pickFirst_(r, ["cwl_attacks_required", "cwlAttacksRequired"], 0));
   s.cwl_missed_attacks = Math.max(0, s.cwl_attacks_required - s.cwl_attacks_done);
-  s.cwl_completion_rate_pct = toNum0_(pickFirst_(r, ["cwl_completion_rate_pct", "cwlCompletionRatePct"], 0));
+  s.cwl_completion_rate_pct = s.cwl_attacks_required > 0
+    ? Math.round((s.cwl_attacks_done / s.cwl_attacks_required) * 1000) / 10
+    : null;
   s.cwl_score = toNum0_(pickFirst_(r, ["cwl_score", "cwlScore"], 0));
 
-  // Overall
-  s.overall_attacks_done = toNum0_(pickFirst_(r, ["overall_attacks_done", "overallAttacksDone", "total_attacks_done", "totalAttacksDone"], 0));
-  s.overall_attacks_required = toNum0_(pickFirst_(r, ["overall_attacks_required", "overallAttacksRequired", "total_attacks_required", "totalAttacksRequired"], 0));
+  // Overall is attack-weighted CW + CWL. Do not use the old wars-completed rate:
+  // e.g. 100% CW + 0% CWL must depend on how many attacks each mode contains.
+  s.overall_attacks_done = s.cw_attacks_done + s.cwl_attacks_done;
+  s.overall_attacks_required = s.cw_attacks_required + s.cwl_attacks_required;
   s.overall_missed_attacks = Math.max(0, s.overall_attacks_required - s.overall_attacks_done);
-  s.overall_completion_rate_pct = toNum0_(pickFirst_(r, ["completion_rate_pct", "completionRatePct"], 0));
-  s.overall_score = toNum0_(pickFirst_(r, ["overall_score", "overallScore", "completion_rate_pct", "completionRatePct"], 0));
+  s.overall_completion_rate_pct = s.overall_attacks_required > 0
+    ? Math.round((s.overall_attacks_done / s.overall_attacks_required) * 1000) / 10
+    : null;
+  s.overall_score = s.overall_completion_rate_pct;
 
   return s;
 }
 
 function getFreshWarStatsRows_(members) {
   let stats = dedupeWarStatsRowsByTag_(readAllSheetObjects_("WarStats"));
+
+  const firstMember = (members || []).find(m => String(m.playerTag || "").trim());
+  const clanTag = String((firstMember && firstMember.clanTag) || "").trim();
+  const clanName = (
+    (typeof readClanNameFromSheet_ === "function" ? String(readClanNameFromSheet_() || "") : "") ||
+    String((firstMember && firstMember.clanName) || "").trim()
+  );
+
+  // Force one rebuild after deploying the v3 stats semantics. After that the
+  // collector keeps WarStats current, so API reads stay cheap.
+  if (clanTag && typeof computeWarStats_ === "function") {
+    try {
+      const props = PropertiesService.getScriptProperties();
+      const logicVersion = "2026-09-01-v3";
+      if (props.getProperty("WAR_STATS_LOGIC_VERSION") !== logicVersion) {
+        computeWarStats_(clanTag, clanName);
+        props.setProperty("WAR_STATS_LOGIC_VERSION", logicVersion);
+        stats = dedupeWarStatsRowsByTag_(readAllSheetObjects_("WarStats"));
+      }
+    } catch (e) {
+      // Keep serving the last available stats if the one-time rebuild fails.
+    }
+  }
 
   const hasCwlStats = stats.some(r => {
     return (
@@ -650,16 +693,7 @@ function getFreshWarStatsRows_(members) {
     const type = String(r.warType || "").toUpperCase();
     return (type === "CWL" || type === "CWL_SEASON");
   });
-  if (!hasCwlSource) return stats;
-
-  const firstMember = (members || []).find(m => String(m.playerTag || "").trim());
-  const clanTag = String((firstMember && firstMember.clanTag) || "").trim();
-  const clanName = (
-    (typeof readClanNameFromSheet_ === "function" ? String(readClanNameFromSheet_() || "") : "") ||
-    String((firstMember && firstMember.clanName) || "").trim()
-  );
-
-  if (!clanTag || typeof computeWarStats_ !== "function") return stats;
+  if (!hasCwlSource || !clanTag || typeof computeWarStats_ !== "function") return stats;
 
   try {
     computeWarStats_(clanTag, clanName);
@@ -721,15 +755,14 @@ function pickStatPack_(s, type) {
     return {
       done: toNum0_(s.cwl_attacks_done),
       required: toNum0_(s.cwl_attacks_required),
-      warsJoined: toNum0_(s.cwl_seasons_joined) + toNum0_(s.cwl_rounds_present) * 0.0001 // tiny tie-break
+      warsJoined: toNum0_(s.cwl_rounds_present) || toNum0_(s.cwl_attacks_required)
     };
   }
   if (type === "overall") {
-    // approximate warsJoined from required attacks: CW=2 per war, CWL=1 per round; war count is fuzzy -> ok for confidence
     return {
       done: toNum0_(s.overall_attacks_done),
       required: toNum0_(s.overall_attacks_required),
-      warsJoined: approxWarsJoinedFromRequired_(toNum0_(s.overall_attacks_required))
+      warsJoined: toNum0_(s.cw_wars_joined) + toNum0_(s.cwl_rounds_present)
     };
   }
   // default cw
@@ -778,6 +811,219 @@ function scoreNote_(score, required, warsJoined) {
   return "avoid";
 }
 
+function normalizeSeasonValue_(value) {
+  if (value instanceof Date || (value && Object.prototype.toString.call(value) === '[object Date]')) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone() || 'GMT', 'yyyy-MM');
+  }
+  if (typeof value === 'number' && isFinite(value) && value > 30000 && value < 80000) {
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86400000);
+    return Utilities.formatDate(d, 'GMT', 'yyyy-MM');
+  }
+  const s = String(value || '').trim();
+  const m = s.match(/^(\d{4})[-\/]?(\d{2})/);
+  if (m) return m[1] + '-' + m[2];
+  return s;
+}
+
+function normalizePercentValue_(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  let n = Number(String(value).replace(/%/g, '').trim());
+  if (!isFinite(n)) return 0;
+  while (Math.abs(n) > 100) n /= 10;
+  return Math.round(n * 100) / 100;
+}
+
+function getOwnClanTag_() {
+  const members = readAllSheetObjects_('MembersCurrent');
+  const m = members.find(x => String(x.clanTag || '').trim());
+  if (m) return String(m.clanTag || '').trim().toUpperCase();
+  const clan = readAllSheetObjects_('ClanCurrent');
+  return clan.length ? String(clan[0].clanTag || '').trim().toUpperCase() : '';
+}
+
+function getOwnCwlRoundRows_() {
+  const clanTag = getOwnClanTag_();
+  const rounds = readAllSheetObjects_('CWLRounds');
+  const roundMembers = readAllSheetObjects_('CWLRoundMembers');
+  const knownTags = new Set(readAllSheetObjects_('MembersCurrent').map(m => String(m.playerTag || '').trim().toUpperCase()).filter(Boolean));
+  const overlap = new Map();
+  roundMembers.forEach(m => {
+    const rk = String(m.roundKey || '');
+    const tag = String(m.playerTag || '').trim().toUpperCase();
+    if (rk && knownTags.has(tag)) overlap.set(rk, (overlap.get(rk) || 0) + 1);
+  });
+  const groups = new Map();
+  rounds.forEach(r => {
+    const key = String(r.seasonKey || '') + '|' + String(r.roundIndex || '');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  });
+  const picked = [];
+  groups.forEach(list => {
+    let best = null, bestScore = -1;
+    list.forEach(r => {
+      const reversed = clanTag && String(r.opponentTag || '').trim().toUpperCase() === clanTag;
+      // Legacy rows wrote cfg.clanTag into every group pairing, so clanTag cannot
+      // identify the own war. opponentTag==own is definitive; otherwise use
+      // member overlap. New collector data has one candidate/day, so +1 keeps it.
+      const score = (reversed ? 100000 : 0) + (overlap.get(String(r.roundKey || '')) || 0) + (list.length === 1 ? 1 : 0);
+      if (score > bestScore) { best = r; bestScore = score; }
+    });
+    if (!best || bestScore <= 0) return;
+    const reversed = clanTag && String(best.opponentTag || '').trim().toUpperCase() === clanTag;
+    const out = Object.assign({}, best, { _legacyReversed: !!reversed });
+    if (reversed) {
+      const cs = out.clanStars, cd = out.clanDestruction;
+      out.clanStars = out.oppStars; out.clanDestruction = out.oppDestruction;
+      out.oppStars = cs; out.oppDestruction = cd;
+      out.result = String(out.result || '') === 'win' ? 'lose' : String(out.result || '') === 'lose' ? 'win' : out.result;
+      out.opponentTag = ''; out.opponentName = '';
+    }
+    picked.push(out);
+  });
+  return picked;
+}
+
+function filterShapePageRows_(rows, req, defaultSortBy, defaultSortDir) {
+  const q = String(req.params.q || '').trim();
+  const filters = parseFilters_(req);
+  if (filters) rows = rows.filter(row => Object.keys(filters).every(col => matchFilterExpr_(getValCI_(row, col), String(filters[col]))));
+  if (q) {
+    const qq = normalizeSearchStr_(q).trim();
+    rows = rows.filter(row => Object.values(row).some(v => normalizeSearchStr_(v).includes(qq)));
+  }
+  const sortBy = String(req.params.sortBy || defaultSortBy || '').trim();
+  const sortDir = String(req.params.sortDir || defaultSortDir || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
+  if (sortBy) rows.sort((a,b) => compareSmart_(getValCI_(a, sortBy), getValCI_(b, sortBy), sortDir));
+  const totalAfterFilter = rows.length;
+  const offset = clampInt_(req.params.offset, 0, 0, 10000000);
+  const limit = clampInt_(req.params.limit, 500, 0, 20000);
+  if (offset) rows = rows.slice(offset);
+  if (limit) rows = rows.slice(0, limit);
+  return { rows, totalAfterFilter };
+}
+
+
+/* ---- Analytics ---- */
+
+function handleAnalytics_(req) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "analytics-v3";
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    try { return jsonOut_(JSON.parse(cached)); } catch (e) {}
+  }
+
+  const warRows = readAllSheetObjects_("WarHistory");
+  const cwlRows = getOwnCwlRoundRows_();
+  const raidRows = readAllSheetObjects_("RaidSeasons");
+
+  const weekMap = {};
+  const monthMap = {};
+
+  function bucketKey_(date, granularity) {
+    if (!date) return null;
+    const d = new Date(date.getTime());
+    if (granularity === "month") {
+      return Utilities.formatDate(d, Session.getScriptTimeZone() || "GMT", "yyyy-MM");
+    }
+    // Monday-based ISO-like week key using the week's Monday date; avoids locale/week-number ambiguity.
+    const day = (d.getDay() + 6) % 7;
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - day);
+    return Utilities.formatDate(d, Session.getScriptTimeZone() || "GMT", "yyyy-MM-dd");
+  }
+
+  function ensure_(map, key, granularity) {
+    if (!key) return null;
+    if (!map[key]) {
+      map[key] = {
+        granularity: granularity,
+        period: key,
+        wars: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        stars: 0,
+        destructionSum: 0,
+        destructionSamples: 0,
+        raidLoot: 0,
+        raidAttacks: 0,
+        raidRewards: 0
+      };
+    }
+    return map[key];
+  }
+
+  function addWar_(row, source) {
+    const d = tryParseDate_(row.endTime || row.tsFinal || row.ts || row.startTime);
+    if (!d) return;
+    [[weekMap, "week"], [monthMap, "month"]].forEach(pair => {
+      const bucket = ensure_(pair[0], bucketKey_(d, pair[1]), pair[1]);
+      if (!bucket) return;
+      bucket.wars += 1;
+      const result = String(row.result || "").toLowerCase();
+      if (result === "win") bucket.wins += 1;
+      else if (result === "draw") bucket.draws += 1;
+      else if (result === "lose" || result === "loss") bucket.losses += 1;
+      bucket.stars += num_(row.clanStars);
+      const dest = normalizePercentValue_(row.clanDestruction);
+      if (dest > 0) {
+        bucket.destructionSum += dest;
+        bucket.destructionSamples += 1;
+      }
+    });
+  }
+
+  function addRaid_(row) {
+    const d = tryParseDate_(row.endTime || row.startTime);
+    if (!d) return;
+    [[weekMap, "week"], [monthMap, "month"]].forEach(pair => {
+      const bucket = ensure_(pair[0], bucketKey_(d, pair[1]), pair[1]);
+      if (!bucket) return;
+      bucket.raidLoot += num_(row.capitalTotalLoot);
+      bucket.raidAttacks += num_(row.totalAttacks);
+      bucket.raidRewards += num_(row.offensiveReward) + num_(row.defensiveReward);
+    });
+  }
+
+  warRows.forEach(r => addWar_(r, "cw"));
+  cwlRows.forEach(r => addWar_(r, "cwl"));
+  raidRows.forEach(addRaid_);
+
+  function finalize_(map) {
+    return Object.keys(map).sort().map(k => {
+      const b = map[k];
+      const decided = b.wins + b.losses + b.draws;
+      return {
+        granularity: b.granularity,
+        period: b.period,
+        wars: b.wars,
+        wins: b.wins,
+        losses: b.losses,
+        draws: b.draws,
+        winRate: decided ? Math.round((b.wins / decided) * 1000) / 10 : 0,
+        stars: b.stars,
+        avgDestruction: b.destructionSamples ? Math.round((b.destructionSum / b.destructionSamples) * 10) / 10 : 0,
+        raidLoot: b.raidLoot,
+        raidAttacks: b.raidAttacks,
+        raidRewards: b.raidRewards
+      };
+    });
+  }
+
+  const rows = finalize_(weekMap).concat(finalize_(monthMap));
+  const payload = {
+    ok: true,
+    ts: new Date().toISOString(),
+    resource: "analytics",
+    totalAfterFilter: rows.length,
+    rows: rows
+  };
+  try { cache.put(cacheKey, JSON.stringify(payload), 120); } catch (e) {}
+  return jsonOut_(payload);
+}
+
 /* ---- CWL ---- */
 
 function handleCwlSeasonHistory_(req) {
@@ -788,19 +1034,30 @@ function handleCwlSeasonHistory_(req) {
     defaultSortDir: "desc"
   });
 
-  const rows = raw.rows.map(r => ({
+  const ownRounds = getOwnCwlRoundRows_();
+  const bySeason = new Map();
+  ownRounds.forEach(r => {
+    const sk = String(r.seasonKey || '');
+    if (!bySeason.has(sk)) bySeason.set(sk, []);
+    bySeason.get(sk).push(r);
+  });
+  const rows = raw.rows.map(r => {
+    const rr = bySeason.get(String(r.seasonKey || '')) || [];
+    const ended = rr.filter(x => String(x.state || '') === 'warEnded');
+    const won = ended.filter(x => String(x.result || '') === 'win').length;
+    const lost = ended.filter(x => /lose|loss/.test(String(x.result || ''))).length;
+    const draw = ended.filter(x => String(x.result || '') === 'draw').length;
+    return ({
     seasonKey: r.seasonKey,
-    tsFirstSeen: r.tsFirstSeen,
-    tsFinal: r.tsFinal,
-    clanTag: r.clanTag,
-    clanName: r.clanName,
-    season: r.season,
-    roundsTotal: num_(r.roundsTotal),
-    roundsEnded: num_(r.roundsEnded),
-    roundsWon: num_(r.roundsWon),
-    roundsLost: num_(r.roundsLost),
-    roundsDraw: num_(r.roundsDraw)
-  }));
+    season: normalizeSeasonValue_(r.season),
+    startTime: r.tsFirstSeen,
+    endTime: r.tsFinal,
+    roundsTotal: Math.max(rr.length, num_(r.roundsTotal) > 7 ? Math.min(7, Math.ceil(num_(r.roundsTotal) / 4)) : Math.min(7, num_(r.roundsTotal))),
+    roundsEnded: rr.length ? ended.length : (num_(r.roundsEnded) > 7 ? Math.min(7, Math.ceil(num_(r.roundsEnded) / 4)) : Math.min(7, num_(r.roundsEnded))),
+    roundsWon: rr.length ? won : num_(r.roundsWon),
+    roundsLost: rr.length ? lost : num_(r.roundsLost),
+    roundsDraw: rr.length ? draw : num_(r.roundsDraw)
+  }); });
 
   return jsonOut_({
     ok: true,
@@ -812,113 +1069,100 @@ function handleCwlSeasonHistory_(req) {
 }
 
 function handleCwlRounds_(req) {
-  // Sheet: CWLRounds (append or replace tuỳ cậu; thường append/upsert)
-  const raw = readSheetObjects_("CWLRounds", req, {
-    strategy: "append",
-    defaultSortBy: "roundIndex",
-    defaultSortDir: "asc"
-  });
-
-  // Optional: filter by season=...
-  const season = String(req.params.season || "").trim();
-  let rows = raw.rows;
-  if (season) rows = rows.filter(r => String(r.season || "") === season);
-
-  rows = rows.map(r => ({
+  let rows = getOwnCwlRoundRows_().map(r => ({
     roundKey: r.roundKey,
     seasonKey: r.seasonKey,
-    season: r.season,
-    roundIndex: num_(r.roundIndex),
+    season: normalizeSeasonValue_(r.season),
+    day: num_(r.roundIndex) + 1,
     warTag: r.warTag,
-    ts: r.ts,
     state: r.state,
     startTime: r.startTime,
     endTime: r.endTime,
     teamSize: num_(r.teamSize),
-    clanTag: r.clanTag,
-    clanName: r.clanName,
     opponentTag: r.opponentTag,
     opponentName: r.opponentName,
     clanStars: num_(r.clanStars),
     oppStars: num_(r.oppStars),
-    clanDestruction: num_(r.clanDestruction),
-    oppDestruction: num_(r.oppDestruction),
+    clanDestruction: normalizePercentValue_(r.clanDestruction),
+    oppDestruction: normalizePercentValue_(r.oppDestruction),
     result: r.result
   }));
+  const paged = filterShapePageRows_(rows, req, 'day', 'asc');
 
   return jsonOut_({
     ok: true,
     ts: new Date().toISOString(),
     resource: "cwl-rounds",
-    nextCursor: raw.nextCursor,
-    totalAfterFilter: raw.totalAfterFilter,
-    rows
+    totalAfterFilter: paged.totalAfterFilter,
+    rows: paged.rows
   });
 }
 
 function handleCwlRoundMembers_(req) {
-  const raw = readSheetObjects_("CWLRoundMembers", req, {
-    strategy: "append",
-    defaultSortBy: "ts",
-    defaultSortDir: "desc"
-  });
-
-  const rows = raw.rows.map(r => ({
+  const ownRounds = getOwnCwlRoundRows_().filter(r => !r._legacyReversed);
+  const roundMap = new Map(ownRounds.map(r => [String(r.roundKey || ''), r]));
+  const knownTags = new Set(readAllSheetObjects_('MembersCurrent').map(m => String(m.playerTag || '').trim().toUpperCase()).filter(Boolean));
+  let rows = readAllSheetObjects_('CWLRoundMembers')
+    .filter(r => roundMap.has(String(r.roundKey || '')))
+    .filter(r => knownTags.has(String(r.playerTag || '').trim().toUpperCase()))
+    .map(r => ({
     roundMemberId: r.roundMemberId,
     roundKey: r.roundKey,
     seasonKey: r.seasonKey,
-    season: r.season,
-    roundIndex: num_(r.roundIndex),
-    ts: r.ts,
+    season: normalizeSeasonValue_(r.season),
+    day: num_(r.roundIndex) + 1,
     playerTag: r.playerTag,
     playerName: r.playerName,
     mapPosition: num_(r.mapPosition),
     attacksDone: num_(r.attacksDone),          // 0|1
     attacksRequired: num_(r.attacksRequired),  // 1
     starsTotal: num_(r.starsTotal),
-    bestDestruction: num_(r.bestDestruction),
+    bestDestruction: normalizePercentValue_(r.bestDestruction),
     missingAttacks: num_(r.missingAttacks)
   }));
+  const paged = filterShapePageRows_(rows, req, 'day', 'desc');
 
   return jsonOut_({
     ok: true,
     ts: new Date().toISOString(),
     resource: "cwl-round-members",
-    nextCursor: raw.nextCursor,
-    totalAfterFilter: raw.totalAfterFilter,
-    rows
+    totalAfterFilter: paged.totalAfterFilter,
+    rows: paged.rows
   });
 }
 
 function handleCwlRoundAttacks_(req) {
-  const raw = readSheetObjects_("CWLRoundAttacks", req, {
-    strategy: "replace",
-    defaultSortBy: "roundIndex",
-    defaultSortDir: "desc"
-  });
-
-  const rows = raw.rows.map(r => ({
+  const ownRounds = getOwnCwlRoundRows_().filter(r => !r._legacyReversed);
+  const roundMap = new Map(ownRounds.map(r => [String(r.roundKey || ''), r]));
+  const knownTags = new Set(readAllSheetObjects_('MembersCurrent').map(m => String(m.playerTag || '').trim().toUpperCase()).filter(Boolean));
+  let rows = readAllSheetObjects_('CWLRoundAttacks')
+    .filter(r => roundMap.has(String(r.roundKey || '')))
+    .filter(r => knownTags.has(String(r.attackerTag || '').trim().toUpperCase()))
+    .map(r => ({
     attackId: r.attackId,
     roundKey: r.roundKey,
     seasonKey: r.seasonKey,
-    season: r.season,
-    roundIndex: num_(r.roundIndex),
+    season: normalizeSeasonValue_(r.season),
+    day: num_(r.roundIndex) + 1,
     warTag: r.warTag,
     attackerTag: r.attackerTag,
     attackerName: r.attackerName,
+    attackerPosition: num_(r.attackerMapPosition),
     defenderTag: r.defenderTag,
+    defenderName: String(r.defenderName || r.defenderTag || '').trim(),
+    defenderPosition: num_(r.defenderMapPosition),
     stars: num_(r.stars),
-    destructionPct: num_(r.destructionPct),
+    destructionPct: normalizePercentValue_(r.destructionPct),
     order: num_(r.order)
   }));
+  const paged = filterShapePageRows_(rows, req, 'day', 'desc');
 
   return jsonOut_({
     ok: true,
     ts: new Date().toISOString(),
     resource: "cwl-round-attacks",
-    nextCursor: raw.nextCursor,
-    totalAfterFilter: raw.totalAfterFilter,
-    rows
+    totalAfterFilter: paged.totalAfterFilter,
+    rows: paged.rows
   });
 }
 
@@ -965,23 +1209,29 @@ function handleRaidMembers_(req) {
   });
 
   const allRaid = readAllSheetObjects_("RaidMembers");
+  const raidSeasonMap = new Map(readAllSheetObjects_("RaidSeasons").map(r => [String(r.raidId || ''), r]));
   let rows = allRaid.filter(r => {
     const tag = String(r.playerTag || "").trim();
     return currentTags.has(tag);
   });
 
-  rows = rows.map(r => ({
+  rows = rows.map(r => {
+    const season = raidSeasonMap.get(String(r.raidId || '')) || {};
+    return ({
     raidMemberId: r.raidMemberId,
     raidId: r.raidId,
+    startTime: season.startTime || '',
+    endTime: season.endTime || '',
     playerTag: r.playerTag,
     name: r.name,
     attacks: num_(r.attacks),
+    attackLimit: num_(r.attackLimit),
     capitalResourcesLooted: num_(r.capitalResourcesLooted)
-  }));
+  }); });
 
   const q = String(req.params.q || "").trim();
   const filters = parseFilters_(req);
-  const sortBy = String(req.params.sortBy || "raidId").trim();
+  const sortBy = String(req.params.sortBy || "endTime").trim();
   const sortDir = (String(req.params.sortDir || "desc").toLowerCase() === "asc") ? "asc" : "desc";
   const limit = clampInt_(req.params.limit, 500, 0, 20000);
   const offset = clampInt_(req.params.offset, 0, 0, 10000000);
@@ -1246,7 +1496,12 @@ function tryParseDate_(x) {
   if (x === null || x === undefined) return null;
   const s = String(x).trim();
   if (!s) return null;
-  const d = new Date(s);
+  let dateText = s;
+  const compact = s.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\.\d+)?Z$/);
+  if (compact) {
+    dateText = `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}${compact[7] || ''}Z`;
+  }
+  const d = new Date(dateText);
   return isNaN(d.getTime()) ? null : d;
 }
 

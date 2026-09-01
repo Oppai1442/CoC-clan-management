@@ -147,7 +147,10 @@ const SHEETS = {
       "defenderTag",
       "stars",
       "destructionPct",
-      "order"
+      "order",
+      "attackerMapPosition",
+      "defenderName",
+      "defenderMapPosition"
     ]
   },
 
@@ -291,7 +294,10 @@ const SHEETS = {
       "defenderTag",
       "stars",
       "destructionPct",
-      "order"
+      "order",
+      "attackerMapPosition",
+      "defenderName",
+      "defenderMapPosition"
     ]
   },
 
@@ -440,7 +446,8 @@ function overwriteSingleRow_(sheetName, row) {
   const headers = SHEETS[sheetName].headers;
   ensureHeaders_(sh, headers);
 
-  sh.getRange(2, 1, 1, headers.length).setValues([row]);
+  prepareSheetWriteFormats_(sh, sheetName, 2, 1, headers);
+  sh.getRange(2, 1, 1, headers.length).setValues(normalizeRowsForSheet_(sheetName, [row], headers));
 
   const last = sh.getLastRow();
   if (last > 2) sh.getRange(3, 1, last - 2, headers.length).clearContent();
@@ -459,7 +466,8 @@ function overwriteTable_(sheetName, rows) {
 
   if (!rows || !rows.length) return;
   try {
-    sh.getRange(2, 1, rows.length, headers.length).setValues(rows);
+    prepareSheetWriteFormats_(sh, sheetName, 2, rows.length, headers);
+    sh.getRange(2, 1, rows.length, headers.length).setValues(normalizeRowsForSheet_(sheetName, rows, headers));
   } catch (e) {
     console.log(sheetName)
   }
@@ -471,6 +479,8 @@ function appendUniqueRows_(sheetName, idColIndex1Based, rows) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(sheetName);
   if (!sh) throw new Error("Missing sheet: " + sheetName);
+  const headers = SHEETS[sheetName].headers;
+  ensureHeaders_(sh, headers);
 
   const lastRow = sh.getLastRow();
   const startRow = 2;
@@ -491,7 +501,9 @@ function appendUniqueRows_(sheetName, idColIndex1Based, rows) {
 
   if (!filtered.length) return;
 
-  sh.getRange(sh.getLastRow() + 1, 1, filtered.length, filtered[0].length).setValues(filtered);
+  const writeRow = sh.getLastRow() + 1;
+  prepareSheetWriteFormats_(sh, sheetName, writeRow, filtered.length, headers);
+  sh.getRange(writeRow, 1, filtered.length, filtered[0].length).setValues(normalizeRowsForSheet_(sheetName, filtered, headers));
 }
 
 function upsertRowsById_(sheetName, idColIndex1Based, rows) {
@@ -500,6 +512,8 @@ function upsertRowsById_(sheetName, idColIndex1Based, rows) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(sheetName);
   if (!sh) throw new Error("Missing sheet: " + sheetName);
+  const headers = SHEETS[sheetName].headers;
+  ensureHeaders_(sh, headers);
 
   const lastRow = sh.getLastRow();
   const lastCol = sh.getLastColumn();
@@ -541,7 +555,69 @@ function upsertRowsById_(sheetName, idColIndex1Based, rows) {
 
   // Write new values in one batch
   if (newValues.length > 0) {
-    sh.getRange(startRow, 1, newValues.length, lastCol).setValues(newValues);
+    const normalizedValues = normalizeRowsForSheet_(sheetName, newValues, headers);
+    prepareSheetWriteFormats_(sh, sheetName, startRow, normalizedValues.length, headers);
+    sh.getRange(startRow, 1, normalizedValues.length, lastCol).setValues(normalizedValues);
+  }
+}
+
+function seasonText_(value) {
+  if (value instanceof Date || (value && Object.prototype.toString.call(value) === "[object Date]")) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone() || "GMT", "yyyy-MM");
+  }
+
+  if (typeof value === "number" && isFinite(value) && value > 30000 && value < 80000) {
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86400000);
+    return Utilities.formatDate(d, "GMT", "yyyy-MM");
+  }
+
+  const s = String(value || "").trim();
+  if (!s) return "";
+  const m = s.match(/^(\d{4})[-\/]?(\d{2})/);
+  if (m) return m[1] + "-" + m[2];
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return Utilities.formatDate(d, Session.getScriptTimeZone() || "GMT", "yyyy-MM");
+  return s;
+}
+
+function normalizePercentCell_(value) {
+  if (value === null || value === undefined || value === "") return "";
+  const raw = String(value).replace(/%/g, "").trim();
+  let n = Number(raw);
+  if (!isFinite(n)) return value;
+  while (Math.abs(n) > 100) n /= 10;
+  return Math.round(n * 100) / 100;
+}
+
+function finiteNumberOrBlank_(value) {
+  if (value === null || value === undefined || value === "") return "";
+  const n = Number(value);
+  return isFinite(n) ? n : "";
+}
+
+function normalizeRowsForSheet_(sheetName, rows, headers) {
+  const h = headers || (SHEETS[sheetName] ? SHEETS[sheetName].headers : []);
+  const seasonIdx = h.indexOf("season");
+  const pctCols = ["clanDestruction", "oppDestruction", "destructionPct", "bestDestruction"]
+    .map(name => h.indexOf(name))
+    .filter(i => i >= 0);
+
+  return (rows || []).map(row => {
+    const out = cleanRow_([].concat(row || []));
+    if (seasonIdx >= 0 && seasonIdx < out.length) out[seasonIdx] = seasonText_(out[seasonIdx]);
+    pctCols.forEach(i => {
+      if (i < out.length) out[i] = normalizePercentCell_(out[i]);
+    });
+    return out;
+  });
+}
+
+function prepareSheetWriteFormats_(sh, sheetName, startRow, rowCount, headers) {
+  if (!rowCount || rowCount <= 0) return;
+  const h = headers || (SHEETS[sheetName] ? SHEETS[sheetName].headers : []);
+  const seasonIdx = h.indexOf("season");
+  if (seasonIdx >= 0) {
+    sh.getRange(startRow, seasonIdx + 1, rowCount, 1).setNumberFormat("@");
   }
 }
 
@@ -982,11 +1058,18 @@ function commitWarObject_(cfg, war, warType, sourceId, attacksRequiredOverride) 
   });
   upsertRowsById_("WarMembers", 1, memberRows);
 
-  // WarAttacks (append unique)
+  // WarAttacks. Keep target identity so the UI can show who attacked whom.
+  const opponentByTag = new Map();
+  (war.opponent?.members || []).forEach(m => {
+    const tag = String(m.tag || "").trim();
+    if (tag) opponentByTag.set(tag, m);
+  });
+
   const attackRows = [];
   (war.clan?.members || []).forEach(m => {
     (m.attacks || []).forEach(a => {
       const attackId = md5Hex_(`${warKey}|clan|${m.tag || ""}|${a.order}`);
+      const defender = opponentByTag.get(String(a.defenderTag || "").trim()) || {};
       attackRows.push(cleanRow_([
         attackId,
         warKey,
@@ -998,11 +1081,16 @@ function commitWarObject_(cfg, war, warType, sourceId, attacksRequiredOverride) 
         a.defenderTag || "",
         a.stars ?? "",
         a.destructionPercentage ?? "",
-        a.order ?? ""
+        a.order ?? "",
+        m.mapPosition || "",
+        defender.name || "",
+        defender.mapPosition || ""
       ]));
     });
   });
-  appendUniqueRows_("WarAttacks", 1, attackRows);
+  // Upsert instead of append-only so old rows from the current war can be enriched
+  // after the schema gains defender name/map-position columns.
+  upsertRowsById_("WarAttacks", 1, attackRows);
 
   // War ended => commit WarHistory + MemberWarHistory + recompute stats
   const warEnded = String(war.state || "") === "warEnded";
@@ -1072,6 +1160,57 @@ function syncWarCW_(cfg) {
   commitWarObject_(cfg, war, "CW", "CW", required);
 }
 
+function normalizeClanTag_(tag) {
+  const t = String(tag || "").trim().toUpperCase();
+  if (!t) return "";
+  return t.startsWith("#") ? t : ("#" + t);
+}
+
+function orientCwlWarForClan_(war, clanTag) {
+  if (!war) return null;
+  const own = normalizeClanTag_(clanTag);
+  const clanSide = normalizeClanTag_(war.clan && war.clan.tag);
+  const oppSide = normalizeClanTag_(war.opponent && war.opponent.tag);
+
+  if (clanSide === own) return war;
+  if (oppSide === own) {
+    // CoC league-war responses are not guaranteed to put the requested clan on
+    // `clan`. Normalize the object once so every downstream sheet is own-clan first.
+    return Object.assign({}, war, {
+      clan: war.opponent || {},
+      opponent: war.clan || {}
+    });
+  }
+  return null;
+}
+
+function fetchOwnCwlWarForRound_(cfg, seasonKey, roundIndex, round) {
+  const tags = (round && round.warTags ? round.warTags : [])
+    .map(x => String(x || "").trim())
+    .filter(x => x && x !== "#0");
+  if (!tags.length) return null;
+
+  const props = PropertiesService.getScriptProperties();
+  const propKey = "CWL_OWN_WARTAG_" + md5Hex_(seasonKey + "|" + roundIndex);
+  const cached = String(props.getProperty(propKey) || "").trim();
+  const ordered = cached ? [cached].concat(tags.filter(t => t !== cached)) : tags;
+
+  for (let i = 0; i < ordered.length; i++) {
+    const warTag = ordered[i];
+    const warTagEnc = encodeURIComponent(warTag.startsWith("#") ? warTag : ("#" + warTag));
+    try {
+      const raw = cocGet_(cfg, `/clanwarleagues/wars/${warTagEnc}`);
+      const oriented = orientCwlWarForClan_(raw, cfg.clanTag);
+      if (!oriented) continue;
+      if (warTag !== cached) props.setProperty(propKey, warTag);
+      return { warTag, war: oriented };
+    } catch (e) {
+      Logger.log("CWL war fetch failed " + warTag + ": " + e.message);
+    }
+  }
+  return null;
+}
+
 function syncWarCWLSeason_(cfg) {
   const nowIso = new Date().toISOString();
 
@@ -1103,45 +1242,29 @@ function syncWarCWLSeason_(cfg) {
   // clanName lấy từ ClanCurrent cho chắc
   const clanName = readClanNameFromSheet_() || "";
 
-  // collect all warTags
   const rounds = group.rounds || [];
-  const warTags = [];
-  rounds.forEach((r, idx) => {
-    (r.warTags || []).forEach(wt => {
-      if (wt && wt !== "#0") warTags.push({ warTag: wt, roundIndex: idx });
-    });
-  });
-
-  if (warTags.length === 0) {
+  if (rounds.length === 0) {
     Logger.log("CWL group has no warTags.");
     return;
   }
 
-  // fetch each round war, commit round-level sheets
+  // One CWL season has one war for this clan per day. The group endpoint exposes
+  // every pairing (usually 4 warTags/day for an 8-clan group), so select only the
+  // war that actually contains cfg.clanTag.
   const roundSummaries = [];
-  warTags.slice(0, 15).forEach(x => {
-    const warTag = x.warTag;
-    const roundIndex = x.roundIndex;
-
-    const warTagEnc = encodeURIComponent(warTag.trim().startsWith("#") ? warTag.trim() : ("#" + warTag.trim()));
-
-    let w;
-    try {
-      w = cocGet_(cfg, `/clanwarleagues/wars/${warTagEnc}`);
-    } catch (e) {
-      Logger.log("CWL war fetch failed " + warTag + ": " + e.message);
-      return;
-    }
-
-    const roundInfo = commitCwlRound_(cfg, seasonKey, season, roundIndex, warTag, w, clanName);
+  rounds.forEach((round, roundIndex) => {
+    const ownWar = fetchOwnCwlWarForRound_(cfg, seasonKey, roundIndex, round);
+    if (!ownWar) return;
+    const roundInfo = commitCwlRound_(cfg, seasonKey, season, roundIndex, ownWar.warTag, ownWar.war, clanName);
     if (roundInfo) roundSummaries.push(roundInfo);
   });
 
-  // aggregate season stats per member (based on CWLRoundMembers)
-  commitCwlSeasonAggregate_(cfg, seasonKey, season, clanName);
+  // Aggregate only the seven own-clan round keys. This prevents old group-wide
+  // rows from contaminating member statistics.
+  const ownRoundKeys = new Set(roundSummaries.map(r => r.roundKey).filter(Boolean));
+  commitCwlSeasonAggregate_(cfg, seasonKey, season, clanName, ownRoundKeys);
 
-  // season end detection: all fetched rounds are warEnded AND count matches (best-effort)
-  const roundsTotal = warTags.length;
+  const roundsTotal = rounds.length;
   const roundsEnded = roundSummaries.filter(r => r.state === "warEnded").length;
 
   let roundsWon = 0, roundsLost = 0, roundsDraw = 0;
@@ -1151,7 +1274,7 @@ function syncWarCWLSeason_(cfg) {
     else if (r.result === "draw") roundsDraw++;
   });
 
-  const seasonEnded = (roundSummaries.length > 0) && (roundsEnded === roundSummaries.length) && (roundSummaries.length >= Math.min(7, roundsTotal));
+  const seasonEnded = roundsTotal > 0 && roundSummaries.length === roundsTotal && roundsEnded === roundsTotal;
 
   if (seasonEnded) {
     const finalSeen = nowIso;
@@ -1188,10 +1311,10 @@ function commitCwlRound_(cfg, seasonKey, season, roundIndex, warTag, w, clanName
   const opp = w.opponent || {};
   const clan = w.clan || {};
 
-  const clanStars = clan.stars ?? "";
-  const oppStars = opp.stars ?? "";
-  const clanDes = clan.destructionPercentage ?? "";
-  const oppDes = opp.destructionPercentage ?? "";
+  const clanStars = finiteNumberOrBlank_(clan.stars);
+  const oppStars = finiteNumberOrBlank_(opp.stars);
+  const clanDes = finiteNumberOrBlank_(clan.destructionPercentage);
+  const oppDes = finiteNumberOrBlank_(opp.destructionPercentage);
 
   const result = warResult_(clanStars, oppStars, clanDes, oppDes);
 
@@ -1247,11 +1370,18 @@ function commitCwlRound_(cfg, seasonKey, season, roundIndex, warTag, w, clanName
   });
   upsertRowsById_("CWLRoundMembers", 1, memberRows);
 
-  // Attacks (append unique)
+  const opponentByTag = new Map();
+  (opp.members || []).forEach(m => {
+    const tag = String(m.tag || "").trim();
+    if (tag) opponentByTag.set(tag, m);
+  });
+
+  // Attacks
   const attackRows = [];
   (clan.members || []).forEach(m => {
     (m.attacks || []).forEach(a => {
       const attackId = md5Hex_(`${roundKey}|${m.tag || ""}|${a.order}`);
+      const defender = opponentByTag.get(String(a.defenderTag || "").trim()) || {};
       attackRows.push(cleanRow_([
         attackId,
         roundKey,
@@ -1264,16 +1394,19 @@ function commitCwlRound_(cfg, seasonKey, season, roundIndex, warTag, w, clanName
         a.defenderTag || "",
         a.stars ?? "",
         a.destructionPercentage ?? "",
-        a.order ?? ""
+        a.order ?? "",
+        m.mapPosition || "",
+        defender.name || "",
+        defender.mapPosition || ""
       ]));
     });
   });
-  appendUniqueRows_("CWLRoundAttacks", 1, attackRows);
+  upsertRowsById_("CWLRoundAttacks", 1, attackRows);
 
-  return { state: String(w.state || ""), result };
+  return { roundKey, state: String(w.state || ""), result };
 }
 
-function commitCwlSeasonAggregate_(cfg, seasonKey, season, clanName) {
+function commitCwlSeasonAggregate_(cfg, seasonKey, season, clanName, ownRoundKeys) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName("CWLRoundMembers");
   if (!sh) return;
@@ -1288,6 +1421,7 @@ function commitCwlSeasonAggregate_(cfg, seasonKey, season, clanName) {
   const idx = (h) => headers.indexOf(h);
 
   const iSeasonKey = idx("seasonKey");
+  const iRoundKey = idx("roundKey");
   const iPlayerTag = idx("playerTag");
   const iPlayerName = idx("playerName");
   const iDone = idx("attacksDone");
@@ -1299,6 +1433,7 @@ function commitCwlSeasonAggregate_(cfg, seasonKey, season, clanName) {
 
   vals.forEach(r => {
     if (String(r[iSeasonKey] || "") !== seasonKey) return;
+    if (ownRoundKeys && ownRoundKeys.size > 0 && !ownRoundKeys.has(String(r[iRoundKey] || ""))) return;
 
     const tag = String(r[iPlayerTag] || "");
     if (!tag) return;
@@ -1390,6 +1525,11 @@ function computeWarStats_(clanTag, clanName) {
     const type = String(r[iType] || "");
     const tag = String(r[iTag] || "");
     if (!warKey || !tag) return;
+
+    // Legacy collectors also wrote one WarMembers row per CWL group war, then
+    // wrote a CWL_SEASON aggregate. Counting both double-counts CWL and old
+    // group-wide rows may belong to other clans. Stats use the season aggregate.
+    if (type === "CWL") return;
 
     const name = String(r[iName] || "");
     const done = Number(r[iDone] || 0) || 0;
@@ -1635,6 +1775,10 @@ function cleanRow_(arr) {
       if (!isFinite(v)) return "";
       if (v % 1 !== 0) return Math.round(v * 100) / 100;
       return v;
+    }
+    if (typeof v === "string" && /^-?\d+(?:\.\d+)?$/.test(v.trim())) {
+      const n = Number(v.trim());
+      if (isFinite(n)) return n % 1 !== 0 ? Math.round(n * 100) / 100 : n;
     }
     return v;
   });

@@ -46,20 +46,21 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 // --- API Methods ---
 
 export const AVAILABLE_ENDPOINTS = [
-  { name: "Announcements", i18nKey: "endpoint.announcements", path: "/api/v1/announcements", strategy: "replace" },
-  { name: "Clan Members", i18nKey: "endpoint.clan-members", path: "/api/v1/clan/members", strategy: "replace" },
-  { name: "Member Events", i18nKey: "endpoint.member-events", path: "/api/v1/member-events", strategy: "replace" },
-  { name: "War History", i18nKey: "endpoint.war-history", path: "/api/v1/war/history", strategy: "replace" },
-  { name: "War Members", i18nKey: "endpoint.war-members", path: "/api/v1/war/members", strategy: "append" },
-  { name: "War Attacks", i18nKey: "endpoint.war-attacks", path: "/api/v1/war/attacks", strategy: "append" },
-  { name: "War Stats (Current)", i18nKey: "endpoint.war-stats-current", path: "/api/v1/war/stats-current", strategy: "replace" },
-  { name: "War Recommend", i18nKey: "endpoint.war-recommend", path: "/api/v1/war/recommend", strategy: "replace" },
-  { name: "CWL Season History", i18nKey: "endpoint.cwl-season-history", path: "/api/v1/cwl/season-history", strategy: "replace" },
-  { name: "CWL Rounds", i18nKey: "endpoint.cwl-rounds", path: "/api/v1/cwl/rounds", strategy: "append" },
-  { name: "CWL Round Members", i18nKey: "endpoint.cwl-round-members", path: "/api/v1/cwl/round-members", strategy: "append" },
-  { name: "CWL Round Attacks", i18nKey: "endpoint.cwl-round-attacks", path: "/api/v1/cwl/round-attacks", strategy: "replace" },
-  { name: "Raid Seasons", i18nKey: "endpoint.raid-seasons", path: "/api/v1/raid/seasons", strategy: "append" },
-  { name: "Raid Members", i18nKey: "endpoint.raid-members", path: "/api/v1/raid/members", strategy: "replace" },
+  { name: "Announcements", i18nKey: "endpoint.announcements", path: "/api/v1/announcements", strategy: "replace", group: "overview", pollMs: 60000 },
+  { name: "Analytics", i18nKey: "endpoint.analytics", path: "/api/v1/analytics", strategy: "replace", group: "overview", pollMs: 120000 },
+  { name: "Clan Members", i18nKey: "endpoint.clan-members", path: "/api/v1/clan/members", strategy: "replace", group: "clan", pollMs: 30000 },
+  { name: "Member Events", i18nKey: "endpoint.member-events", path: "/api/v1/member-events", strategy: "replace", group: "clan", pollMs: 120000 },
+  { name: "War History", i18nKey: "endpoint.war-history", path: "/api/v1/war/history", strategy: "replace", group: "war", pollMs: 120000 },
+  { name: "War Members", i18nKey: "endpoint.war-members", path: "/api/v1/war/members", strategy: "append", group: "war", pollMs: 30000 },
+  { name: "War Attacks", i18nKey: "endpoint.war-attacks", path: "/api/v1/war/attacks", strategy: "append", group: "war", pollMs: 30000 },
+  { name: "War Stats (Current)", i18nKey: "endpoint.war-stats-current", path: "/api/v1/war/stats-current", strategy: "replace", group: "war", pollMs: 60000 },
+  { name: "War Recommend", i18nKey: "endpoint.war-recommend", path: "/api/v1/war/recommend", strategy: "replace", group: "war", pollMs: 60000 },
+  { name: "CWL Season History", i18nKey: "endpoint.cwl-season-history", path: "/api/v1/cwl/season-history", strategy: "replace", group: "cwl", pollMs: 300000 },
+  { name: "CWL Rounds", i18nKey: "endpoint.cwl-rounds", path: "/api/v1/cwl/rounds", strategy: "replace", group: "cwl", pollMs: 120000 },
+  { name: "CWL Round Members", i18nKey: "endpoint.cwl-round-members", path: "/api/v1/cwl/round-members", strategy: "replace", group: "cwl", pollMs: 120000 },
+  { name: "CWL Round Attacks", i18nKey: "endpoint.cwl-round-attacks", path: "/api/v1/cwl/round-attacks", strategy: "replace", group: "cwl", pollMs: 120000 },
+  { name: "Raid Seasons", i18nKey: "endpoint.raid-seasons", path: "/api/v1/raid/seasons", strategy: "append", group: "raid", pollMs: 120000 },
+  { name: "Raid Members", i18nKey: "endpoint.raid-members", path: "/api/v1/raid/members", strategy: "replace", group: "raid", pollMs: 120000 },
 ] as const;
 
 export async function fetchEndpoint<T = any>(

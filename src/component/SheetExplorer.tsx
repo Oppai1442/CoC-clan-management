@@ -37,6 +37,7 @@ import {
   Copy,
   Check,
   BarChart3,
+  TrendingUp,
   Plus,
   Trash2
 } from "lucide-react";
@@ -154,6 +155,66 @@ function rawString(value: unknown) {
   return String(value);
 }
 
+function formatAnalyticsPeriod(period: string, granularity: "week" | "month") {
+  if (granularity === "month" && /^\d{4}-\d{2}$/.test(period)) {
+    const [year, month] = period.split("-");
+    return `${month}/${year}`;
+  }
+  const date = new Date(`${period}T00:00:00`);
+  if (!Number.isNaN(date.getTime())) return format(date, "dd/MM/yyyy");
+  return period;
+}
+
+function AnalyticsLineChart({ rows, valueKey, label, suffix = "" }: { rows: Record<string, any>[]; valueKey: string; label: string; suffix?: string }) {
+  const data = rows.slice(-18);
+  const values = data.map(r => numberFrom(r[valueKey]));
+  const max = Math.max(1, ...values);
+  const width = 900;
+  const height = 240;
+  const padX = 42;
+  const padY = 28;
+  const usableW = width - padX * 2;
+  const usableH = height - padY * 2;
+  const points = values.map((v, i) => {
+    const x = padX + (data.length <= 1 ? usableW / 2 : (i / (data.length - 1)) * usableW);
+    const y = padY + usableH - (v / max) * usableH;
+    return { x, y, v, period: rawString(data[i]?.period) };
+  });
+  const polyline = points.map(p => `${p.x},${p.y}`).join(" ");
+
+  return (
+    <div className="bg-[#fcfaf2] border-2 border-[#dccfb9] rounded-xl p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="text-xs font-black uppercase tracking-wider text-[#6f4b2f]">{label}</div>
+        <div className="text-[10px] text-[#806f5c]">{data.length} periods</div>
+      </div>
+      <div className="w-full overflow-x-auto">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[620px] h-[220px]" role="img" aria-label={label}>
+          {[0, 0.25, 0.5, 0.75, 1].map(level => {
+            const y = padY + usableH - level * usableH;
+            return <line key={level} x1={padX} x2={width - padX} y1={y} y2={y} stroke="currentColor" opacity="0.12" />;
+          })}
+          {points.length > 1 && <polyline points={polyline} fill="none" stroke="currentColor" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" className="text-[#8b5e34]" />}
+          {points.map((p, i) => (
+            <g key={`${p.period}-${i}`}>
+              <circle cx={p.x} cy={p.y} r="5" fill="currentColor" className="text-[#b7791f]" />
+              {(i === 0 || i === points.length - 1 || i % Math.max(1, Math.ceil(points.length / 6)) === 0) && <text x={p.x} y={height - 6} textAnchor="middle" fontSize="10" fill="currentColor" opacity="0.6">{p.period.slice(5)}</text>}
+            </g>
+          ))}
+          <text x={padX} y={14} fontSize="11" fill="currentColor" opacity="0.65">{formatCompact(max)}{suffix}</text>
+          <text x={padX} y={height - padY + 4} fontSize="11" fill="currentColor" opacity="0.65">0{suffix}</text>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function formatCompact(value: number) {
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return value.toFixed(value % 1 ? 1 : 0);
+}
+
 export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const { t, i18n } = useTranslation();
   const { user, login, logout, isAuthenticated } = useAuth();
@@ -242,7 +303,11 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   };
 
   const [selectedWarKey, setSelectedWarKey] = useState("latest");
+  const [selectedCwlSeasonKey, setSelectedCwlSeasonKey] = useState("");
+  const [selectedCwlDay, setSelectedCwlDay] = useState("all");
+  const [analyticsGranularity, setAnalyticsGranularity] = useState<"week" | "month">("week");
   const [warHistory, setWarHistory] = useState<any[]>([]);
+  const [cwlSeasons, setCwlSeasons] = useState<any[]>([]);
   const [activeSheetName, setActiveSheetName] = useState("");
   const [totalVisits, setTotalVisits] = useState(0);
   const [noteTarget, setNoteTarget] = useState<{ tag: string; name: string; memberNote?: string; adminNote?: string } | null>(null);
@@ -301,8 +366,14 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     if (activeSheetName === "War Members" || activeSheetName === "War Attacks") {
       f.warKey = selectedWarKey;
     }
+    if (["CWL Rounds", "CWL Round Members", "CWL Round Attacks"].includes(activeSheetName) && selectedCwlSeasonKey) {
+      f.seasonKey = selectedCwlSeasonKey;
+    }
+    if (["CWL Round Members", "CWL Round Attacks"].includes(activeSheetName) && selectedCwlDay !== "all") {
+      f.day = selectedCwlDay;
+    }
     return f;
-  }, [filters, activeSheetName, selectedWarKey]);
+  }, [filters, activeSheetName, selectedWarKey, selectedCwlSeasonKey, selectedCwlDay]);
 
   const isReplaceStrategy = useMemo(() => {
     const activeEndpoint = AVAILABLE_ENDPOINTS.find(e => e.name === activeSheetName);
@@ -375,6 +446,17 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
         .then(resp => setWarHistory(resp.rows || []))
         .catch(() => {});
     }
+  }, [baseUrl, activeSheetName]);
+
+  useEffect(() => {
+    if (!["CWL Rounds", "CWL Round Members", "CWL Round Attacks"].includes(activeSheetName)) return;
+    fetchEndpoint(baseUrl, "/api/v1/cwl/season-history", { limit: 50, sortBy: "season", sortDir: "desc" })
+      .then(resp => {
+        const list = resp.rows || [];
+        setCwlSeasons(list);
+        setSelectedCwlSeasonKey(prev => prev || list[0]?.seasonKey || "");
+      })
+      .catch(() => {});
   }, [baseUrl, activeSheetName]);
 
   useEffect(() => {
@@ -460,13 +542,12 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
         return val;
       }
       let n = numberFrom(val);
-      if (n <= 1.0) {
-        n *= 100;
-      } else if (n > 100) {
-        while (n > 100) {
-          n /= 10;
-        }
-      }
+      const fractionFields = new Set([
+        "smoothedRate", "confidenceAttacks", "confidenceWars", "confidenceFactor",
+        "missFactor", "missPenalty", "score", "observedRate"
+      ]);
+      if (fractionFields.has(columnKey)) n *= 100;
+      while (Math.abs(n) > 100) n /= 10;
       return `${formatNum(n)}%`;
     }
 
@@ -552,6 +633,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const baseVisibleHeaders = useMemo(() => {
     return headers.filter(h => {
       if (h === "type" && activeSheetName === "Member Events") return true;
+      if (["CWL Rounds", "CWL Round Members", "CWL Round Attacks"].includes(activeSheetName) && h === "season") return false;
       return !TECHNICAL_COLUMNS.has(h);
     });
   }, [headers, activeSheetName]);
@@ -562,18 +644,65 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
 
   const activeFiltersCount = (q.trim() ? 1 : 0) + Object.keys(filters).length + (sortConfig ? 1 : 0);
 
+  const analyticsRows = useMemo(() => {
+    if (activeSheetName !== "Analytics") return [];
+    return rows
+      .filter(r => r.granularity === analyticsGranularity)
+      .sort((a, b) => rawString(a.period).localeCompare(rawString(b.period)));
+  }, [rows, activeSheetName, analyticsGranularity]);
+
+  const analyticsTotals = useMemo(() => {
+    const data = analyticsRows;
+    const wars = data.reduce((a, r) => a + numberFrom(r.wars), 0);
+    const wins = data.reduce((a, r) => a + numberFrom(r.wins), 0);
+    const losses = data.reduce((a, r) => a + numberFrom(r.losses), 0);
+    const draws = data.reduce((a, r) => a + numberFrom(r.draws), 0);
+    const decided = wins + losses + draws;
+    return {
+      wars,
+      wins,
+      losses,
+      draws,
+      winRate: decided ? (wins / decided) * 100 : 0,
+      raidLoot: data.reduce((a, r) => a + numberFrom(r.raidLoot), 0),
+      raidAttacks: data.reduce((a, r) => a + numberFrom(r.raidAttacks), 0)
+    };
+  }, [analyticsRows]);
+
   const summaryCards = useMemo<SummaryCard[]>(() => {
     const count = shown.length;
     const sum = (field: string) => shown.reduce((acc, r) => acc + numberFrom(r[field]), 0);
     const avg = (field: string) => count ? sum(field) / count : 0;
+    const avgPresent = (field: string) => {
+      const values = shown.filter(r => r[field] !== null && r[field] !== undefined && r[field] !== "").map(r => numberFrom(r[field]));
+      return values.length ? values.reduce((a, n) => a + n, 0) / values.length : 0;
+    };
+    const avgPct = (field: string) => {
+      if (!count) return 0;
+      const values = shown.map(r => {
+        let n = numberFrom(r[field]);
+        while (Math.abs(n) > 100) n /= 10;
+        return n;
+      });
+      return values.reduce((a, n) => a + n, 0) / values.length;
+    };
     const unique = (field: string) => new Set(shown.map(r => rawString(r[field])).filter(Boolean)).size;
     const resultCount = (value: string) => shown.filter(r => rawString(r.result).toLowerCase() === value).length;
 
     const generic: SummaryCard[] = [
-      { label: t("summary.totalRows"), value: formatNum(count) },
+      { label: t("summary.totalRows"), value: formatNum(isReplaceStrategy ? totalAfterFilter : count) },
       { label: t("summary.visibleColumns"), value: `${visibleHeaders.length}/${baseVisibleHeaders.length}` },
       { label: t("summary.activeFilters"), value: formatNum(activeFiltersCount) }
     ];
+
+    if (activeSheetName === "Analytics") {
+      return [
+        { label: t("summary.wars"), value: formatNum(analyticsTotals.wars) },
+        { label: t("summary.winRate"), value: `${formatNum(analyticsTotals.winRate)}%` },
+        { label: t("summary.totalLoot"), value: formatNum(analyticsTotals.raidLoot) },
+        { label: t("summary.raidAttacks"), value: formatNum(analyticsTotals.raidAttacks) }
+      ];
+    }
 
     if (activeSheetName === "Clan Members") {
       const management = shown.filter(r => /leader|co|thủ lĩnh|đồng/i.test(`${r.role} ${r.roleVi}`)).length;
@@ -593,7 +722,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
       return [
         { label: t("summary.wars"), value: formatNum(count) },
         { label: t("summary.record"), value: `${win}/${lose}/${draw}` },
-        { label: t("summary.avgDestruction"), value: `${formatNum(avg("clanDestruction") || avg("oppDestruction"))}%` }
+        { label: t("summary.avgDestruction"), value: `${formatNum(avgPct("clanDestruction") || avgPct("oppDestruction"))}%` }
       ];
     }
 
@@ -612,7 +741,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
       return [
         { label: t("summary.attacks"), value: formatNum(count) },
         { label: t("summary.totalStars"), value: formatNum(sum("stars")) },
-        { label: t("summary.avgDestruction"), value: `${formatNum(avg("destructionPct"))}%` },
+        { label: t("summary.avgDestruction"), value: `${formatNum(avgPct("destructionPct"))}%` },
         { label: t("summary.uniqueAttackers"), value: formatNum(unique("attackerTag")) }
       ];
     }
@@ -621,7 +750,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
       const topScore = Math.max(0, ...shown.map(r => numberFrom(r.overall_completion_rate_pct)));
       return [
         { label: t("summary.members"), value: formatNum(count) },
-        { label: t("summary.avgCompletion"), value: `${formatNum(avg("overall_completion_rate_pct"))}%` },
+        { label: t("summary.avgCompletion"), value: `${formatNum(avgPresent("overall_completion_rate_pct"))}%` },
         { label: t("summary.missingAttacks"), value: formatNum(sum("overall_missed_attacks")) },
         { label: t("summary.topCompletion"), value: `${formatNum(topScore)}%` }
       ];
@@ -633,8 +762,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
       return [
         { label: t("summary.picked"), value: formatNum(picked) },
         { label: t("summary.bench"), value: formatNum(bench) },
-        { label: t("summary.avgCompletion"), value: `${formatNum(avg("smoothedRate"))}%` },
-        { label: t("summary.topScore"), value: formatNum(Math.max(0, ...shown.map(r => numberFrom(r.score)))) }
+        { label: t("summary.avgCompletion"), value: `${formatNum(avgPresent("observedRatePct"))}%` },
+        { label: t("summary.topScore"), value: `${formatNum(Math.max(0, ...shown.map(r => numberFrom(r.scorePct))))}%` }
       ];
     }
 
@@ -656,7 +785,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
     }
 
     return generic;
-  }, [shown, visibleHeaders.length, baseVisibleHeaders.length, activeFiltersCount, activeSheetName, t, formatNum]);
+  }, [shown, visibleHeaders.length, baseVisibleHeaders.length, activeFiltersCount, activeSheetName, analyticsTotals, isReplaceStrategy, totalAfterFilter, t, formatNum]);
 
   const clearFilters = () => {
     setQ("");
@@ -830,39 +959,46 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
               ))}
             </div>
           ) : (
-            sheets.map(s => {
-              const isSelected = s.name === selected;
+            ([
+              ["overview", t("nav.overview")],
+              ["clan", t("nav.clan")],
+              ["war", t("nav.war")],
+              ["cwl", t("nav.cwl")],
+              ["raid", t("nav.raid")]
+            ] as const).map(([groupKey, groupLabel]) => {
+              const groupSheets = sheets.filter(s => s.group === groupKey);
+              if (!groupSheets.length) return null;
               return (
-                <button
-                  key={s.name}
-                  onClick={() => setSelected(s.name)}
-                  className={clsx(
-                    "w-full text-left p-3 rounded-xl transition-all duration-100 flex items-center gap-3 group border-2 relative overflow-hidden",
-                    isSelected
-                      ? "bg-[#3a2a1a] border-yellow-500 shadow-[0_4px_0_0_rgba(0,0,0,0.3)] translate-y-[-1px]"
-                      : "bg-[#2a2a2a] border-[#444] hover:bg-[#333] hover:border-[#666] hover:-translate-y-0.5",
-                    activeTourType === "main" && activeTourIndex === 5 && s.name === "Clan Members" && "ring-4 ring-yellow-500"
-                  )}
-                >
-                  <div className={clsx(
-                    "p-2 rounded-lg border-2 shadow-inner",
-                    isSelected ? "bg-yellow-500 border-yellow-300 text-yellow-900" : "bg-[#1a1a1a] border-[#333] text-[#555]"
-                  )}>
-                    <Scroll size={20} />
-                  </div>
-                  <div className="flex-1 min-w-0 z-10">
-                    <div className={clsx("font-bold truncate text-base", isSelected ? "text-white" : "text-[#ccc]")} style={isSelected ? { textShadow: "1px 1px 0 #000" } : {}}>
-                      {t(s.i18nKey, s.name)}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 text-[10px] text-[#888] font-mono">
-                      <span className={clsx("flex items-center gap-1 uppercase", s.strategy === "append" ? "text-green-400" : "text-blue-400")}>
-                        {s.strategy === "append" ? <ArrowDownToLine size={10} /> : <RotateCw size={10} />}
-                        {s.strategy}
-                      </span>
-                    </div>
-                  </div>
-                  {isSelected && <div className="absolute inset-0 bg-yellow-500/10 mix-blend-overlay" />}
-                </button>
+                <div key={groupKey} className="space-y-1.5 pt-1">
+                  <div className="px-2 pt-2 text-[9px] uppercase tracking-[0.2em] text-[#666] font-black">{groupLabel}</div>
+                  {groupSheets.map(s => {
+                    const isSelected = s.name === selected;
+                    return (
+                      <button
+                        key={s.name}
+                        onClick={() => setSelected(s.name)}
+                        className={clsx(
+                          "w-full text-left px-3 py-2.5 rounded-xl transition-all duration-100 flex items-center gap-3 group border-2 relative overflow-hidden",
+                          isSelected
+                            ? "bg-[#3a2a1a] border-yellow-500 shadow-[0_4px_0_0_rgba(0,0,0,0.3)] translate-y-[-1px]"
+                            : "bg-[#2a2a2a] border-[#444] hover:bg-[#333] hover:border-[#666]",
+                          activeTourType === "main" && activeTourIndex === 5 && s.name === "Clan Members" && "ring-4 ring-yellow-500"
+                        )}
+                      >
+                        <div className={clsx(
+                          "p-1.5 rounded-lg border shadow-inner",
+                          isSelected ? "bg-yellow-500 border-yellow-300 text-yellow-900" : "bg-[#1a1a1a] border-[#333] text-[#555]"
+                        )}>
+                          {s.name === "Analytics" ? <BarChart3 size={17} /> : <Scroll size={17} />}
+                        </div>
+                        <div className="flex-1 min-w-0 z-10">
+                          <div className={clsx("font-bold truncate text-sm", isSelected ? "text-white" : "text-[#ccc]")}>{t(s.i18nKey, s.name)}</div>
+                        </div>
+                        {isSelected && <div className="absolute inset-0 bg-yellow-500/10 mix-blend-overlay" />}
+                      </button>
+                    );
+                  })}
+                </div>
               );
             })
           )}
@@ -1017,6 +1153,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           "px-4 lg:px-6 py-3 lg:py-4 bg-[#3d2e1e] border-b border-[#2a2015] flex flex-col gap-3 shadow-inner relative transition-all",
           activeTourType === "main" && activeTourIndex === 1 ? "z-[90]" : "z-20"
         )}>
+          {activeSheetName !== "Analytics" && (
           <div className="flex flex-col xl:flex-row items-stretch xl:items-center gap-3 lg:gap-4">
             {(activeSheetName === "War Members" || activeSheetName === "War Attacks") && (
               <div className="flex items-center gap-2 bg-[#2a1d12] p-1 lg:p-1.5 rounded-xl border-2 border-[#4e3b2a] shadow-inner min-w-0 xl:min-w-[280px]">
@@ -1030,6 +1167,41 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                   {warHistory.map(w => (
                     <option key={w.warKey} value={w.warKey} className="bg-[#2a1d12]">
                       ⚔️ {w.opponentName} ({formatRawForDisplay(w.endTime, "endTime")})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {["CWL Rounds", "CWL Round Members", "CWL Round Attacks"].includes(activeSheetName) && (
+              <div className="flex items-center gap-2 bg-[#2a1d12] p-1 lg:p-1.5 rounded-xl border-2 border-[#4e3b2a] shadow-inner min-w-0 xl:min-w-[230px]">
+                <History size={18} className="ml-2 text-orange-200/40 shrink-0" />
+                <span className="hidden 2xl:inline text-[10px] uppercase font-black text-orange-200/60">{t("cwl.season")}</span>
+                <select
+                  value={selectedCwlSeasonKey}
+                  onChange={e => { setSelectedCwlSeasonKey(e.target.value); setSelectedCwlDay("all"); setPage(1); }}
+                  className="bg-transparent text-orange-50 text-xs lg:text-sm font-bold focus:outline-none cursor-pointer flex-1 py-1 min-w-0"
+                >
+                  {cwlSeasons.map(s => (
+                    <option key={s.seasonKey} value={s.seasonKey} className="bg-[#2a1d12]">
+                      {s.season || s.seasonKey}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {["CWL Round Members", "CWL Round Attacks"].includes(activeSheetName) && (
+              <div className="flex items-center gap-2 bg-[#2a1d12] p-1 lg:p-1.5 rounded-xl border-2 border-[#4e3b2a] shadow-inner min-w-0 xl:min-w-[150px]">
+                <select
+                  value={selectedCwlDay}
+                  onChange={e => { setSelectedCwlDay(e.target.value); setPage(1); }}
+                  className="bg-transparent text-orange-50 text-xs lg:text-sm font-bold focus:outline-none cursor-pointer flex-1 py-1 px-2 min-w-0"
+                >
+                  <option value="all" className="bg-[#2a1d12]">{t("cwl.allDays")}</option>
+                  {[1, 2, 3, 4, 5, 6, 7].map(day => (
+                    <option key={day} value={String(day)} className="bg-[#2a1d12]">
+                      {t("field.day")} {day}
                     </option>
                   ))}
                 </select>
@@ -1107,6 +1279,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
               </div>
             </div>
           </div>
+          )}
 
           {summaryCards.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2">
@@ -1141,7 +1314,38 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           <div className="bg-[#f0e6d2] border-2 lg:border-4 border-[#b89b72] rounded-xl shadow-2xl overflow-hidden h-full flex flex-col relative text-[#2a2a2a]">
             <div className="absolute inset-0 opacity-20 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cream-paper.png')]" />
 
-            {activeSheetName === "Announcements" ? (
+            {activeSheetName === "Analytics" ? (
+              <div className="overflow-auto flex-1 p-4 lg:p-6 relative z-10 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl lg:text-2xl font-black text-orange-950 uppercase tracking-wide flex items-center gap-2"><TrendingUp size={24} /> {t("analytics.title")}</h2>
+                    <p className="text-xs text-[#806f5c] mt-1">{t("analytics.subtitle")}</p>
+                  </div>
+                  <div className="inline-flex bg-[#e4d6bf] border border-[#b89b72] rounded-xl p-1 self-start">
+                    {(["week", "month"] as const).map(g => (
+                      <button key={g} onClick={() => setAnalyticsGranularity(g)} className={clsx("px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all", analyticsGranularity === g ? "bg-[#6f4b2f] text-white shadow" : "text-[#6f4b2f] hover:bg-white/40")}>{t(`analytics.${g}`)}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {analyticsRows.length === 0 ? (
+                  <div className="py-20 text-center text-[#998877] font-bold uppercase tracking-wider">{loading ? t("status.loading") : t("status.noData")}</div>
+                ) : (
+                  <>
+                    <AnalyticsLineChart rows={analyticsRows} valueKey="winRate" label={t("analytics.winRateTrend")} suffix="%" />
+                    <AnalyticsLineChart rows={analyticsRows} valueKey="raidLoot" label={t("analytics.raidLootTrend")} />
+                    <div className="bg-[#fcfaf2] border-2 border-[#dccfb9] rounded-xl overflow-hidden shadow-sm">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-[#e4d6bf] text-[#5c4631] uppercase text-[10px]"><tr><th className="p-3 text-left">{t("analytics.period")}</th><th className="p-3 text-right">{t("summary.wars")}</th><th className="p-3 text-right">{t("summary.record")}</th><th className="p-3 text-right">{t("summary.winRate")}</th><th className="p-3 text-right">{t("summary.avgDestruction")}</th><th className="p-3 text-right">{t("summary.totalLoot")}</th></tr></thead>
+                          <tbody>{[...analyticsRows].reverse().slice(0, 24).map(r => <tr key={`${r.granularity}-${r.period}`} className="border-t border-[#dccfb9]/70"><td className="p-3 font-black">{formatAnalyticsPeriod(rawString(r.period), analyticsGranularity)}</td><td className="p-3 text-right">{formatNum(numberFrom(r.wars))}</td><td className="p-3 text-right">{formatNum(numberFrom(r.wins))}/{formatNum(numberFrom(r.losses))}/{formatNum(numberFrom(r.draws))}</td><td className="p-3 text-right font-black">{formatNum(numberFrom(r.winRate))}%</td><td className="p-3 text-right">{formatNum(numberFrom(r.avgDestruction))}%</td><td className="p-3 text-right">{formatNum(numberFrom(r.raidLoot))}</td></tr>)}</tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : activeSheetName === "Announcements" ? (
               <div className="overflow-auto flex-1 p-4 lg:p-6 space-y-6 scrollbar-parchment relative z-10 max-w-4xl mx-auto w-full">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b-2 border-[#b89b72]/40 pb-4">
                   <div>

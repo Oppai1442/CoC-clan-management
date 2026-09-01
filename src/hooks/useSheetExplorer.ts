@@ -6,6 +6,8 @@ type SheetMeta = {
   i18nKey: string;
   path: string;
   strategy: "append" | "replace";
+  group?: string;
+  pollMs?: number;
 };
 
 export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
@@ -120,6 +122,8 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
     [sheets, selectedPath]
   );
 
+  const effectivePollMs = selectedMeta?.pollMs ?? pollMs;
+
   // Auto-select first
   useEffect(() => {
     if (!selectedPath && sheets.length > 0) {
@@ -197,7 +201,22 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
           // APPEND
           if (!isActive) return;
           if (dataRows.length > 0) {
-             setRows(prev => [...prev, ...dataRows]);
+             setRows(prev => {
+               const keyOf = (row: Record<string, any>) =>
+                 row.attackId || row.warMemberId || row.roundMemberId || row.raidMemberId || row.rowId ||
+                 row.eventId || row.warKey || row.roundKey || row.raidId ||
+                 [row.playerTag, row.ts, row.roundIndex, row.season].filter(Boolean).join("|") || JSON.stringify(row);
+               const seen = new Set(prev.map(keyOf));
+               const fresh = dataRows.filter(row => {
+                 const key = keyOf(row);
+                 if (seen.has(key)) return false;
+                 seen.add(key);
+                 return true;
+               });
+               if (!fresh.length) return prev;
+               const merged = [...prev, ...fresh];
+               return merged.length > 5000 ? merged.slice(-5000) : merged;
+             });
              setTotalAfterFilter(prev => prev + dataRows.length);
              if (resp.nextCursor && resp.nextCursor > cursorRef.current) {
                  setCursor(resp.nextCursor);
@@ -212,7 +231,7 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
           setLoading(false);
           if (isFirstFetch) setIsInitialLoading(false);
           isFirstFetch = false;
-          timer = window.setTimeout(tick, pollMs);
+          timer = window.setTimeout(tick, effectivePollMs);
         }
       }
     };
@@ -224,7 +243,7 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
       ctrl.abort();
       if (timer) window.clearTimeout(timer);
     };
-  }, [baseUrl, selectedPath, pollMs, selectedMeta, options.q, options.sortBy, options.sortDir, options.filters, options.authTag, options.offset, options.limit, refreshKey]);
+  }, [baseUrl, selectedPath, effectivePollMs, selectedMeta, options.q, options.sortBy, options.sortDir, options.filters, options.authTag, options.offset, options.limit, refreshKey]);
 
   const resetCursor = () => {
     if (!selectedPath) return;
@@ -250,6 +269,8 @@ export function useSheetExplorer(baseUrl: string, pollMs: number, options: {
         name: s.name,
         i18nKey: s.i18nKey,
         strategy: s.strategy,
+        group: s.group,
+        pollMs: s.pollMs,
         lastRow: 0
     })),
     selected: sheets.find(s => s.path === selectedPath)?.name || "",
