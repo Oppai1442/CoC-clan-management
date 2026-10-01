@@ -62,13 +62,40 @@ async function parseJsonResponse<T>(res: Response): Promise<T> {
 }
 
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, { method: "GET", signal, redirect: "follow" });
-  const data = await parseJsonResponse<T>(res);
-  if (!data || (data as any).ok !== true) {
-    const err = (data as ErrResp)?.error || `HTTP ${res.status}`;
-    throw new Error(err);
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const requestUrl = attempt === 0
+        ? url
+        : `${url}${url.includes("?") ? "&" : "?"}_retry=${Date.now()}`;
+      const res = await fetch(requestUrl, {
+        method: "GET",
+        signal,
+        redirect: "follow",
+        cache: "no-store",
+        headers: { Accept: "application/json, text/plain;q=0.9, */*;q=0.1" },
+      });
+      const data = await parseJsonResponse<T>(res);
+      if (!data || (data as any).ok !== true) {
+        const err = (data as ErrResp)?.error || `HTTP ${res.status}`;
+        throw new Error(err);
+      }
+      return data as T;
+    } catch (error: any) {
+      lastError = error;
+      if (error?.name === "AbortError") throw error;
+      const message = String(error?.message || error);
+      const transientFormatError =
+        message.includes("returned HTML instead of JSON") ||
+        message.includes("Invalid JSON response") ||
+        message.includes("Empty response");
+      if (!transientFormatError || attempt === 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 350));
+    }
   }
-  return data as T;
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 // --- API Methods ---
