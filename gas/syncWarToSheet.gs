@@ -1533,7 +1533,13 @@ function computeWarStats_(clanTag, clanName) {
 
     const name = String(r[iName] || "");
     const done = Number(r[iDone] || 0) || 0;
-    const req = Number(r[iReq] || 0) || 0;
+    const storedReq = Number(r[iReq] || 0) || 0;
+
+    // Standard Clan War gives every rostered member 2 attacks. Some legacy
+    // WarMembers rows were written with attacksRequired=1, which made lifetime
+    // stats look like 60/70 instead of 60/140. CWL_SEASON is an aggregate and
+    // keeps its stored required count (number of rounds present).
+    const req = (type === "CWL_SEASON") ? storedReq : 2;
 
     const warEnded = endedSet.has(warKey);
 
