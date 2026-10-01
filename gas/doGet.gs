@@ -88,6 +88,7 @@ function dispatchRequest_(req) {
     if (route === "/api/v1/war/attacks") return handleWarAttacks_(req);
     if (route === "/api/v1/war/stats-current") return handleWarStatsCurrent_(req);
     if (route === "/api/v1/war/recommend") return handleWarRecommend_(req);
+    if (route === "/api/v1/war/recommend/manual-exclude") return handleWarRecommendManualExclude_(req);
 
 
     // CWL (season = 1 đợt, rounds = 7 trận)
@@ -420,11 +421,10 @@ function handleWarRecommend_(req) {
     if (tag) statMap.set(tag, s);
   });
 
+  // MembersCurrent can occasionally contain duplicate playerTag rows after old
+  // collectors/migrations. Build recommendation candidates from a tag-keyed map
+  // so one player can never appear twice.
   const memInfo = new Map();
-  const currentMemberTags = [];
-  const eligibleMemberTags = [];
-  const optOutExcluded = [];
-
   members.forEach(m => {
     const tag = String(m.playerTag || "").trim().toUpperCase();
     const status = String(getValCI_(m, "status") || "IN").toUpperCase();
@@ -438,15 +438,25 @@ function handleWarRecommend_(req) {
       warPreference,
       firstSeen: getValCI_(m, "firstSeen")
     };
-    memInfo.set(tag, info);
-    currentMemberTags.push(tag);
 
-    if (!includeOptOut && warPreference === "out") {
-      optOutExcluded.push(tag);
-      return;
+    const prev = memInfo.get(tag);
+    if (!prev || countFilledValues_(m) >= countFilledValues_(prev.__raw || {})) {
+      memInfo.set(tag, { ...info, __raw: m });
     }
-    eligibleMemberTags.push(tag);
   });
+
+  const currentMemberTags = Array.from(memInfo.keys());
+  const optOutExcluded = [];
+  const eligibleMemberTags = currentMemberTags.filter(tag => {
+    const info = memInfo.get(tag);
+    if (!includeOptOut && info && info.warPreference === "out") {
+      optOutExcluded.push(tag);
+      return false;
+    }
+    return true;
+  });
+
+  const manualExcludeSet = loadWarRecommendManualExcludeSet_(type);
 
   let poolTags = eligibleMemberTags;
   let lockMeta = null;
@@ -504,7 +514,10 @@ function handleWarRecommend_(req) {
         recentEligibleWars: 0,
         recentAttacksDone: 0,
         recentAttacksRequired: 0,
+        lifetimeAttacks: "0/0",
+        lifetimeWarsJoined: 0,
         recentAttacks: "0/0",
+        manualExcluded: manualExcludeSet.has(tag),
         trend: "no_history",
         trendDeltaPct: 0,
         confidenceAttacks: 0,
@@ -566,6 +579,8 @@ function handleWarRecommend_(req) {
       observedRatePct: Math.round(observedRate * 1000) / 10,
       smoothedRate: round3_(lifetimeScore),
       lifetimeScorePct: Math.round(lifetimeScore * 1000) / 10,
+      lifetimeAttacks: done + "/" + reqd,
+      lifetimeWarsJoined: warsJoined,
 
       recentPerformancePct: Math.round(recent.performance * 1000) / 10,
       recentActivityPct: Math.round(recent.activity * 1000) / 10,
@@ -574,6 +589,7 @@ function handleWarRecommend_(req) {
       recentAttacksDone: recent.attacksDone,
       recentAttacksRequired: recent.attacksRequired,
       recentAttacks: recent.attacksDone + "/" + recent.attacksRequired,
+      manualExcluded: manualExcludeSet.has(tag),
       trend: recent.trend,
       trendDeltaPct: Math.round(recent.delta * 1000) / 10,
 
@@ -591,6 +607,12 @@ function handleWarRecommend_(req) {
   });
 
   candidates.sort((a, b) => {
+    // Manual management exclusion always wins over score: excluded members stay
+    // visible, but are demoted to the bottom and never consume a picked slot.
+    const aManual = a.manualExcluded ? 1 : 0;
+    const bManual = b.manualExcluded ? 1 : 0;
+    if (aManual !== bManual) return aManual - bManual;
+
     const aNoHist = (a.note === "no_history") ? 1 : 0;
     const bNoHist = (b.note === "no_history") ? 1 : 0;
     if (aNoHist !== bNoHist) return aNoHist - bNoHist;
@@ -607,8 +629,12 @@ function handleWarRecommend_(req) {
     );
   });
 
-  const picked = candidates.slice(0, size).map((x, i) => ({ rank: i + 1, ...x }));
-  const bench = candidates.slice(size).map((x, i) => ({ rank: size + i + 1, ...x }));
+  const normalCandidates = candidates.filter(x => !x.manualExcluded);
+  const manualCandidates = candidates.filter(x => x.manualExcluded);
+  const pickedRaw = normalCandidates.slice(0, size);
+  const benchRaw = normalCandidates.slice(size).concat(manualCandidates);
+  const picked = pickedRaw.map((x, i) => ({ rank: i + 1, ...x }));
+  const bench = benchRaw.map((x, i) => ({ rank: pickedRaw.length + i + 1, ...x }));
 
   return jsonOut_({
     ok: true,
@@ -649,6 +675,7 @@ function handleWarRecommend_(req) {
       poolCandidates: poolTags.length,
       considered: candidates.length,
       recentWarsAvailable: recentContext.wars.length,
+      manualExcluded: manualExcludeSet.size,
       noHistoryExcluded: includeNoHistory ? 0 : noHistory.length
     },
 
@@ -830,6 +857,85 @@ function recommendTimeMs_(value) {
   if (!s) return 0;
   const ms = Date.parse(s);
   return Number.isFinite(ms) ? ms : 0;
+}
+
+
+function warRecommendManualExcludeKey_(type) {
+  const normalized = ["cw", "cwl", "overall"].includes(String(type || "").toLowerCase())
+    ? String(type).toLowerCase()
+    : "cw";
+  return "WAR_RECOMMEND_MANUAL_EXCLUDE_" + normalized.toUpperCase();
+}
+
+function loadWarRecommendManualExcludeSet_(type) {
+  const raw = String(
+    PropertiesService.getScriptProperties().getProperty(warRecommendManualExcludeKey_(type)) || ""
+  ).trim();
+  return new Set(
+    raw.split(",")
+      .map(x => String(x || "").trim().toUpperCase())
+      .filter(Boolean)
+  );
+}
+
+function saveWarRecommendManualExcludeSet_(type, set) {
+  const tags = Array.from(set || [])
+    .map(x => String(x || "").trim().toUpperCase())
+    .filter(Boolean)
+    .sort();
+  PropertiesService.getScriptProperties()
+    .setProperty(warRecommendManualExcludeKey_(type), tags.join(","));
+}
+
+function requireManagementSession_(authTag, token) {
+  const tag = String(authTag || "").trim().toUpperCase();
+  const sessionToken = String(token || "").trim();
+  if (!tag || !sessionToken) throw new Error("Missing authTag/token");
+
+  const members = readAllSheetObjects_("MembersCurrent");
+  const member = members.find(m =>
+    String(getValCI_(m, "playerTag") || "").trim().toUpperCase() === tag &&
+    String(getValCI_(m, "status") || "IN").trim().toUpperCase() === "IN"
+  );
+  if (!member) throw new Error("Auth member not found");
+
+  const storedToken = String(getValCI_(member, "token") || "").trim();
+  if (!storedToken || storedToken !== sessionToken) throw new Error("Invalid session");
+
+  const role = String(getValCI_(member, "role") || "").trim().toLowerCase();
+  if (role !== "leader" && role !== "coleader") {
+    throw new Error("Management role required");
+  }
+  return member;
+}
+
+function handleWarRecommendManualExclude_(req) {
+  const authTag = String(req.params.authTag || "").trim().toUpperCase();
+  const token = String(req.params.token || "").trim();
+  const targetTag = String(req.params.targetTag || "").trim().toUpperCase();
+  const type = String(req.params.type || "cw").trim().toLowerCase();
+  const excluded = String(req.params.excluded || "true").toLowerCase() === "true";
+
+  if (!targetTag) return jsonOut_({ ok: false, error: "Missing targetTag" });
+
+  try {
+    requireManagementSession_(authTag, token);
+    const set = loadWarRecommendManualExcludeSet_(type);
+    if (excluded) set.add(targetTag);
+    else set.delete(targetTag);
+    saveWarRecommendManualExcludeSet_(type, set);
+
+    return jsonOut_({
+      ok: true,
+      resource: "war-recommend-manual-exclude",
+      type,
+      targetTag,
+      excluded,
+      excludedTags: Array.from(set)
+    });
+  } catch (e) {
+    return jsonOut_({ ok: false, error: String(e && e.message ? e.message : e) });
+  }
 }
 
 
