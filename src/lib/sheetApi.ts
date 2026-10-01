@@ -33,10 +33,38 @@ function buildUrl(baseUrl: string, qp: Record<string, string | number | undefine
   return url.toString();
 }
 
+async function parseJsonResponse<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  const trimmed = text.trim();
+  const contentType = res.headers.get("content-type") || "";
+
+  if (!trimmed) {
+    throw new Error(`Empty response (HTTP ${res.status})`);
+  }
+
+  const looksHtml =
+    contentType.includes("text/html") ||
+    /^<!doctype\s+html/i.test(trimmed) ||
+    /^<html[\s>]/i.test(trimmed);
+
+  if (looksHtml) {
+    throw new Error(
+      `Backend returned HTML instead of JSON (HTTP ${res.status}). This is usually a temporary Apps Script deployment/redirect response; retry the request.`
+    );
+  }
+
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    const preview = trimmed.slice(0, 120).replace(/\s+/g, " ");
+    throw new Error(`Invalid JSON response (HTTP ${res.status}): ${preview}`);
+  }
+}
+
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, { method: "GET", signal });
-  const data = await res.json();
-  if (!data || data.ok !== true) {
+  const res = await fetch(url, { method: "GET", signal, redirect: "follow" });
+  const data = await parseJsonResponse<T>(res);
+  if (!data || (data as any).ok !== true) {
     const err = (data as ErrResp)?.error || `HTTP ${res.status}`;
     throw new Error(err);
   }
@@ -176,7 +204,7 @@ export async function createAnnouncement(
     },
     body: JSON.stringify(payload)
   });
-  const data = await response.json();
+  const data = await parseJsonResponse<any>(response);
   if (!data.ok) {
     throw new Error(data.error || "Failed to create announcement");
   }
@@ -199,9 +227,35 @@ export async function deleteAnnouncement(
     },
     body: JSON.stringify(payload)
   });
-  const data = await response.json();
+  const data = await parseJsonResponse<any>(response);
   if (!data.ok) {
     throw new Error(data.error || "Failed to delete announcement");
   }
   return data as { ok: true, message: string };
+}
+
+export async function setWarRecommendManualExclude(
+  baseUrl: string,
+  opts: {
+    authTag: string;
+    token: string;
+    targetTag: string;
+    type?: "cw" | "cwl" | "overall";
+    excluded: boolean;
+  }
+) {
+  const url = buildUrl(baseUrl, {
+    path: "/api/v1/war/recommend/manual-exclude",
+    authTag: opts.authTag,
+    token: opts.token,
+    targetTag: opts.targetTag,
+    type: opts.type || "cw",
+    excluded: String(opts.excluded),
+  });
+  return fetchJson<{
+    ok: true;
+    targetTag: string;
+    excluded: boolean;
+    excludedTags: string[];
+  }>(url);
 }
