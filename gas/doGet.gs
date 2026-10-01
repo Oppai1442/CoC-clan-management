@@ -514,8 +514,6 @@ function handleWarRecommend_(req) {
         recentEligibleWars: 0,
         recentAttacksDone: 0,
         recentAttacksRequired: 0,
-        lifetimeAttacks: "0/0",
-        lifetimeWarsJoined: 0,
         recentAttacks: "0/0",
         manualExcluded: manualExcludeSet.has(tag),
         trend: "no_history",
@@ -579,8 +577,6 @@ function handleWarRecommend_(req) {
       observedRatePct: Math.round(observedRate * 1000) / 10,
       smoothedRate: round3_(lifetimeScore),
       lifetimeScorePct: Math.round(lifetimeScore * 1000) / 10,
-      lifetimeAttacks: done + "/" + reqd,
-      lifetimeWarsJoined: warsJoined,
 
       recentPerformancePct: Math.round(recent.performance * 1000) / 10,
       recentActivityPct: Math.round(recent.activity * 1000) / 10,
@@ -739,9 +735,10 @@ function buildRecentRecommendContext_(type, windowSize, halfLife) {
     if (!tag) return;
 
     if (!membersByWar.has(warKey)) membersByWar.set(warKey, new Map());
+    const storedRequired = Math.max(0, toNum0_(getValCI_(r, "attacksRequired")));
     membersByWar.get(warKey).set(tag, {
       attacksDone: Math.max(0, toNum0_(getValCI_(r, "attacksDone"))),
-      attacksRequired: Math.max(0, toNum0_(getValCI_(r, "attacksRequired")))
+      attacksRequired: rowType === "cw" ? 2 : storedRequired
     });
   });
 
@@ -970,7 +967,10 @@ function normalizeWarStatsRow_(r) {
   // CW
   s.cw_wars_joined = toNum0_(pickFirst_(r, ["cw_wars_joined", "cwWarsJoined"], 0));
   s.cw_attacks_done = toNum0_(pickFirst_(r, ["cw_attacks_done", "cwAttacksDone"], 0));
-  s.cw_attacks_required = toNum0_(pickFirst_(r, ["cw_attacks_required", "cwAttacksRequired"], 0));
+  const rawCwRequired = toNum0_(pickFirst_(r, ["cw_attacks_required", "cwAttacksRequired"], 0));
+  // Backward compatibility for legacy WarStats rows that counted one required
+  // attack per normal war. Standard CW is 2 attacks/member.
+  s.cw_attacks_required = Math.max(rawCwRequired, s.cw_wars_joined * 2);
   s.cw_missed_attacks = Math.max(0, s.cw_attacks_required - s.cw_attacks_done);
   s.cw_completion_rate_pct = s.cw_attacks_required > 0
     ? Math.round((s.cw_attacks_done / s.cw_attacks_required) * 1000) / 10
@@ -1016,7 +1016,7 @@ function getFreshWarStatsRows_(members) {
   if (clanTag && typeof computeWarStats_ === "function") {
     try {
       const props = PropertiesService.getScriptProperties();
-      const logicVersion = "2026-09-01-v3";
+      const logicVersion = "2026-10-01-v4-cw2";
       if (props.getProperty("WAR_STATS_LOGIC_VERSION") !== logicVersion) {
         computeWarStats_(clanTag, clanName);
         props.setProperty("WAR_STATS_LOGIC_VERSION", logicVersion);
