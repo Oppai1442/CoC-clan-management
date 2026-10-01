@@ -106,7 +106,16 @@ const TECHNICAL_COLUMNS = new Set([
   "cwl_missed_attacks",
   "overall_attacks_done",
   "overall_attacks_required",
-  "overall_missed_attacks"
+  "overall_missed_attacks",
+  "lifetimeScorePct",
+  "recentWarsJoined",
+  "recentEligibleWars",
+  "recentAttacksDone",
+  "recentAttacksRequired",
+  "trendDeltaPct",
+  "confidencePct",
+  "manualExcluded",
+  "warPreference"
 ]);
 
 const DATE_FIELDS = new Set([
