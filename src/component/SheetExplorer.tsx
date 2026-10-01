@@ -3,7 +3,7 @@ import { useSheetExplorer } from "../hooks/useSheetExplorer";
 import { useAuth } from "../hooks/useAuth";
 import { LoginModal } from "./LoginModal";
 import { AddNoteModal } from "./AddNoteModal";
-import { fetchEndpoint, fetchAccessStats, AVAILABLE_ENDPOINTS, verifyPlayerToken, createAnnouncement, deleteAnnouncement } from "../lib/sheetApi";
+import { fetchEndpoint, fetchAccessStats, AVAILABLE_ENDPOINTS, verifyPlayerToken, createAnnouncement, deleteAnnouncement, setWarRecommendManualExclude } from "../lib/sheetApi";
 import {
   Search,
   RotateCw,
@@ -39,7 +39,9 @@ import {
   BarChart3,
   TrendingUp,
   Plus,
-  Trash2
+  Trash2,
+  UserMinus,
+  UserPlus
 } from "lucide-react";
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
@@ -218,6 +220,8 @@ function formatCompact(value: number) {
 export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const { t, i18n } = useTranslation();
   const { user, login, logout, isAuthenticated } = useAuth();
+  const normalizedUserRole = String(user?.role || "").trim().toLowerCase();
+  const canManageRecommend = isAuthenticated && (normalizedUserRole === "leader" || normalizedUserRole === "coleader");
   const [hasVerifiedAuth, setHasVerifiedAuth] = useState(false);
 
   // Auto-login verification on mount
@@ -260,6 +264,8 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
   const [selectedRowData, setSelectedRowData] = useState<Record<string, any> | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<Record<string, boolean>>({});
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [recommendExclusionBusy, setRecommendExclusionBusy] = useState<string | null>(null);
+  const [recommendExclusionError, setRecommendExclusionError] = useState("");
 
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
@@ -555,9 +561,9 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
 
     if (isChipColumn(columnKey)) {
       const raw = String(val).toLowerCase();
-      const tone = raw.includes("win") || raw.includes("picked") || raw === "in" || raw === "cw" || raw === "cwl" || raw === "join" || raw === "promote"
+      const tone = raw.includes("win") || raw.includes("picked") || raw === "in" || raw === "cw" || raw === "cwl" || raw === "join" || raw === "promote" || raw === "false"
         ? "bg-green-700/10 text-green-800 border-green-700/20"
-        : raw.includes("lose") || raw.includes("loss") || raw.includes("miss") || raw.includes("no_history") || raw === "out" || raw === "leave" || raw === "demote"
+        : raw.includes("lose") || raw.includes("loss") || raw.includes("miss") || raw.includes("no_history") || raw === "out" || raw === "leave" || raw === "demote" || raw === "true"
           ? "bg-red-700/10 text-red-800 border-red-700/20"
           : raw.includes("draw") || raw === "bench" || raw === "name_change" || raw === "role_change"
             ? "bg-yellow-700/10 text-yellow-800 border-yellow-700/20"
@@ -786,6 +792,29 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
 
     return generic;
   }, [shown, visibleHeaders.length, baseVisibleHeaders.length, activeFiltersCount, activeSheetName, analyticsTotals, isReplaceStrategy, totalAfterFilter, t, formatNum]);
+
+  const handleRecommendExclusion = async (row: Record<string, any>, excluded: boolean) => {
+    if (!user?.tag || !user?.token || !canManageRecommend) return;
+    const targetTag = String(row.playerTag || row.tag || "").trim();
+    if (!targetTag) return;
+
+    setRecommendExclusionBusy(targetTag);
+    setRecommendExclusionError("");
+    try {
+      await setWarRecommendManualExclude(baseUrl, {
+        authTag: user.tag,
+        token: user.token,
+        targetTag,
+        type: "cw",
+        excluded,
+      });
+      refresh();
+    } catch (e: any) {
+      setRecommendExclusionError(e?.message || String(e));
+    } finally {
+      setRecommendExclusionBusy(null);
+    }
+  };
 
   const clearFilters = () => {
     setQ("");
@@ -1314,6 +1343,12 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
           <div className="bg-[#f0e6d2] border-2 lg:border-4 border-[#b89b72] rounded-xl shadow-2xl overflow-hidden h-full flex flex-col relative text-[#2a2a2a]">
             <div className="absolute inset-0 opacity-20 pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cream-paper.png')]" />
 
+            {activeSheetName === "War Recommend" && recommendExclusionError && (
+              <div className="mx-4 mt-4 relative z-20 px-3 py-2 rounded-lg border border-red-300 bg-red-50 text-red-800 text-xs font-bold">
+                {recommendExclusionError}
+              </div>
+            )}
+
             {activeSheetName === "Analytics" ? (
               <div className="overflow-auto flex-1 p-4 lg:p-6 relative z-10 space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1479,6 +1514,11 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                           </div>
                         </th>
                       ))}
+                      {activeSheetName === "War Recommend" && canManageRecommend && (
+                        <th className="px-3 lg:px-4 py-2 lg:py-3 text-[10px] lg:text-xs font-black text-[#5c4a35] uppercase tracking-wider min-w-[150px] align-top">
+                          {i18n.language === "vi" ? "Quản lý đề xuất" : "Recommendation control"}
+                        </th>
+                      )}
                       {visibleHeaders.length === 0 && <th className="p-4" />}
                     </tr>
                   </thead>
@@ -1535,12 +1575,37 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                               </div>
                             </td>
                           ))}
+                          {activeSheetName === "War Recommend" && canManageRecommend && (
+                            <td className="px-3 lg:px-4 py-2 lg:py-2.5 border-r border-[#dccfb9]/50 last:border-0 whitespace-nowrap">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRecommendExclusion(r, !Boolean(r.manualExcluded));
+                                }}
+                                disabled={recommendExclusionBusy === String(tag || "")}
+                                className={clsx(
+                                  "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase border transition-all disabled:opacity-50",
+                                  r.manualExcluded
+                                    ? "bg-green-100 text-green-800 border-green-300 hover:bg-green-200"
+                                    : "bg-red-100 text-red-800 border-red-300 hover:bg-red-200"
+                                )}
+                                title={r.manualExcluded
+                                  ? (i18n.language === "vi" ? "Khôi phục member vào xếp hạng đề xuất" : "Restore member to recommendation ranking")
+                                  : (i18n.language === "vi" ? "Đẩy member xuống cuối bảng đề xuất" : "Demote member to the bottom of recommendations")}
+                              >
+                                {r.manualExcluded ? <UserPlus size={12} /> : <UserMinus size={12} />}
+                                {r.manualExcluded
+                                  ? (i18n.language === "vi" ? "Khôi phục" : "Restore")
+                                  : (i18n.language === "vi" ? "Loại" : "Exclude")}
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
                     {shown.length === 0 && (
                       <tr>
-                        <td colSpan={Math.max(1, visibleHeaders.length)} className="px-6 py-20 text-center text-[#998877]">
+                        <td colSpan={Math.max(1, visibleHeaders.length + (activeSheetName === "War Recommend" && canManageRecommend ? 1 : 0))} className="px-6 py-20 text-center text-[#998877]">
                           {(loading || isInitialLoading) ? (
                             <div className="flex flex-col items-center gap-4">
                               <RotateCw className="animate-spin text-green-600/50" size={48} />
