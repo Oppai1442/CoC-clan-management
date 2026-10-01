@@ -391,69 +391,95 @@ function handleWarRecommend_(req) {
   const k = clampInt_(req.params.k, 10, 0, 1000);
   const kWars = clampInt_(req.params.kWars, 5, 0, 1000);
 
+  const recentWindow = clampInt_(req.params.recentWindow, 10, 1, 50);
+  const recentHalfLife = clampInt_(req.params.recentHalfLife, 5, 1, 50);
+  const recentPriorAttacks = clampInt_(req.params.recentPriorAttacks, 2, 0, 20);
   const includeNoHistory = String(req.params.includeNoHistory || "true").toLowerCase() === "true";
+  const includeOptOut = String(req.params.includeOptOut || "false").toLowerCase() === "true";
 
-  // NEW: exclude list
-  const excludeSet = new Set(parseCsvList_(req.params.exclude).map(x => String(x).trim()));
+  // Lifetime remains the stable baseline. Recent execution is intentionally
+  // heavier so a strong historical record cannot hide current neglect.
+  const scoreWeights = {
+    lifetime: 0.35,
+    recentPerformance: 0.45,
+    recentActivity: 0.20
+  };
 
-  // NEW: CWL lock
+  const excludeSet = new Set(
+    parseCsvList_(req.params.exclude).map(x => String(x).trim().toUpperCase())
+  );
+
   const resetLock = String(req.params.resetLock || "false").toLowerCase() === "true";
 
   const members = readAllSheetObjects_("MembersCurrent");
   const stats = getFreshWarStatsRows_(members).map(normalizeWarStatsRow_);
 
   const statMap = new Map();
-  stats.forEach(s => { if (s.playerTag) statMap.set(s.playerTag, s); });
+  stats.forEach(s => {
+    const tag = String(s.playerTag || "").trim().toUpperCase();
+    if (tag) statMap.set(tag, s);
+  });
 
-  // Build current member tags (Only those who are currently IN the clan)
-  const currentMemberTags = members
-    .filter(m => {
-      const s = String(getValCI_(m, "status") || "IN").toUpperCase();
-      return s === "IN";
-    })
-    .map(m => String(m.playerTag || "").trim())
-    .filter(Boolean);
+  const memInfo = new Map();
+  const currentMemberTags = [];
+  const eligibleMemberTags = [];
+  const optOutExcluded = [];
 
-  // Decide candidate pool
-  let poolTags = currentMemberTags;
+  members.forEach(m => {
+    const tag = String(m.playerTag || "").trim().toUpperCase();
+    const status = String(getValCI_(m, "status") || "IN").toUpperCase();
+    if (!tag || status !== "IN") return;
+
+    const warPreference = String(getValCI_(m, "warPreference") || "").trim().toLowerCase();
+    const info = {
+      playerTag: tag,
+      playerName: String(m.name || "").trim(),
+      role: String(m.role || "").trim(),
+      warPreference,
+      firstSeen: getValCI_(m, "firstSeen")
+    };
+    memInfo.set(tag, info);
+    currentMemberTags.push(tag);
+
+    if (!includeOptOut && warPreference === "out") {
+      optOutExcluded.push(tag);
+      return;
+    }
+    eligibleMemberTags.push(tag);
+  });
+
+  let poolTags = eligibleMemberTags;
   let lockMeta = null;
 
   if (type === "cwl") {
     const seasonKey = String(req.params.seasonKey || "").trim() || getActiveCwlSeasonKey_();
     if (!seasonKey) {
-      // fallback: still allow, but lock on "unknown"
-      // (cậu có thể set seasonKey param cho chắc)
-      lockMeta = loadOrInitCwlRosterLock_("CWL_UNKNOWN", currentMemberTags, resetLock);
+      lockMeta = loadOrInitCwlRosterLock_("CWL_UNKNOWN", eligibleMemberTags, resetLock);
     } else {
-      lockMeta = loadOrInitCwlRosterLock_(seasonKey, currentMemberTags, resetLock);
+      lockMeta = loadOrInitCwlRosterLock_(seasonKey, eligibleMemberTags, resetLock);
     }
 
-    // lock pool = locked roster
-    // but still intersect with current members to avoid recommending people already left clan
-    const currSet = new Set(currentMemberTags);
-    poolTags = lockMeta.tags.filter(t => currSet.has(t));
+    const eligibleSet = new Set(eligibleMemberTags);
+    poolTags = lockMeta.tags
+      .map(x => String(x || "").trim().toUpperCase())
+      .filter(t => eligibleSet.has(t));
   }
 
+  const recentContext = buildRecentRecommendContext_(type, recentWindow, recentHalfLife);
   const candidates = [];
   const noHistory = [];
 
-  // Build a fast lookup for members info
-  const memInfo = new Map();
-  members.forEach(m => {
-    const tag = String(m.playerTag || "").trim();
-    if (!tag) return;
-    memInfo.set(tag, {
+  poolTags.forEach(rawTag => {
+    const tag = String(rawTag || "").trim().toUpperCase();
+    if (!tag || excludeSet.has(tag)) return;
+
+    const mi = memInfo.get(tag) || {
       playerTag: tag,
-      playerName: String(m.name || "").trim(),
-      role: String(m.role || "").trim()
-    });
-  });
-
-  poolTags.forEach(tag => {
-    if (!tag) return;
-    if (excludeSet.has(tag)) return; // NEW exclude
-
-    const mi = memInfo.get(tag) || { playerTag: tag, playerName: "", role: "" };
+      playerName: "",
+      role: "",
+      warPreference: "",
+      firstSeen: ""
+    };
     const name = mi.playerName;
     const role = mi.role;
 
@@ -464,12 +490,23 @@ function handleWarRecommend_(req) {
         playerName: name,
         role,
         roleVi: roleVi_(role),
+        warPreference: mi.warPreference,
         type,
         attacksDone: 0,
         attacksRequired: 0,
         missedAttacks: 0,
         warsJoined: 0,
         smoothedRate: 0,
+        lifetimeScorePct: 0,
+        recentPerformancePct: 0,
+        recentActivityPct: 0,
+        recentWarsJoined: 0,
+        recentEligibleWars: 0,
+        recentAttacksDone: 0,
+        recentAttacksRequired: 0,
+        recentAttacks: "0/0",
+        trend: "no_history",
+        trendDeltaPct: 0,
         confidenceAttacks: 0,
         confidenceWars: 0,
         missPenalty: 0,
@@ -490,30 +527,35 @@ function handleWarRecommend_(req) {
     const missRate = (reqd > 0) ? (missed / reqd) : 0;
     const observedRate = (reqd > 0) ? (done / reqd) : 0;
 
-    // Bayesian smoothing: avoid "1 war full hits => 100%"
-    const smoothedRate = (reqd > 0)
+    // Lifetime baseline: Bayesian smoothing prevents tiny samples from looking perfect.
+    const lifetimeScore = (reqd > 0)
       ? (done + alpha) / (reqd + alpha + beta)
       : (alpha + beta > 0 ? alpha / (alpha + beta) : 0);
 
     const confidenceAttacks = (reqd > 0) ? (reqd / (reqd + k)) : 0;
     const confidenceWars = (warsJoined > 0) ? (warsJoined / (warsJoined + kWars)) : 0;
-
-    // Keep these as diagnostics/tie-breakers. The old formula multiplied
-    // smoothed completion by confidence and a second miss penalty, which double-
-    // counted both small samples and missed attacks and compressed scores heavily.
     const missPenalty = 1 / (1 + 2 * missRate);
-
     const confidence = (0.7 * confidenceAttacks + 0.3 * confidenceWars);
-    const confidenceFactor = confidence;
-    const missFactor = missPenalty;
-    // Posterior mean is the actual recommendation score. Sample size already
-    // affects it through alpha/beta; confidence is used only as a tie-breaker.
-    const score = clamp01_(smoothedRate);
+
+    const recent = computeRecentRecommendMetrics_(
+      tag,
+      mi,
+      recentContext,
+      lifetimeScore,
+      recentPriorAttacks
+    );
+
+    const score = clamp01_(
+      scoreWeights.lifetime * lifetimeScore +
+      scoreWeights.recentPerformance * recent.performance +
+      scoreWeights.recentActivity * recent.activity
+    );
 
     candidates.push({
       playerTag: tag,
       playerName: name || s.playerName || "",
       roleVi: roleVi_(role),
+      warPreference: mi.warPreference,
 
       type,
       attacksDone: done,
@@ -522,13 +564,25 @@ function handleWarRecommend_(req) {
       warsJoined,
 
       observedRatePct: Math.round(observedRate * 1000) / 10,
-      smoothedRate: round3_(smoothedRate),
+      smoothedRate: round3_(lifetimeScore),
+      lifetimeScorePct: Math.round(lifetimeScore * 1000) / 10,
+
+      recentPerformancePct: Math.round(recent.performance * 1000) / 10,
+      recentActivityPct: Math.round(recent.activity * 1000) / 10,
+      recentWarsJoined: recent.warsJoined,
+      recentEligibleWars: recent.eligibleWars,
+      recentAttacksDone: recent.attacksDone,
+      recentAttacksRequired: recent.attacksRequired,
+      recentAttacks: recent.attacksDone + "/" + recent.attacksRequired,
+      trend: recent.trend,
+      trendDeltaPct: Math.round(recent.delta * 1000) / 10,
+
       confidenceAttacks: round3_(confidenceAttacks),
       confidenceWars: round3_(confidenceWars),
       confidencePct: Math.round(confidence * 1000) / 10,
       missPenalty: round3_(missPenalty),
-      confidenceFactor: round3_(confidenceFactor),
-      missFactor: round3_(missFactor),
+      confidenceFactor: round3_(confidence),
+      missFactor: round3_(missPenalty),
 
       score: round3_(score),
       scorePct: Math.round(score * 1000) / 10,
@@ -543,6 +597,8 @@ function handleWarRecommend_(req) {
 
     return (
       compareSmart_(a.score, b.score, "desc") ||
+      compareSmart_(a.recentPerformancePct, b.recentPerformancePct, "desc") ||
+      compareSmart_(a.recentActivityPct, b.recentActivityPct, "desc") ||
       compareSmart_(a.confidencePct, b.confidencePct, "desc") ||
       compareSmart_(a.missedAttacks, b.missedAttacks, "asc") ||
       compareSmart_(a.attacksRequired, b.attacksRequired, "desc") ||
@@ -560,7 +616,18 @@ function handleWarRecommend_(req) {
     resource: "war-recommend",
     type,
     sizeRequested: size,
-    params: { alpha, beta, k, kWars, includeNoHistory },
+    params: {
+      alpha,
+      beta,
+      k,
+      kWars,
+      includeNoHistory,
+      includeOptOut,
+      recentWindow,
+      recentHalfLife,
+      recentPriorAttacks,
+      scoreWeights
+    },
 
     pool: (type === "cwl")
       ? {
@@ -575,10 +642,13 @@ function handleWarRecommend_(req) {
       },
 
     excluded: Array.from(excludeSet),
+    optOutExcluded,
     meta: {
       currentMembers: currentMemberTags.length,
+      eligibleMembers: eligibleMemberTags.length,
       poolCandidates: poolTags.length,
       considered: candidates.length,
+      recentWarsAvailable: recentContext.wars.length,
       noHistoryExcluded: includeNoHistory ? 0 : noHistory.length
     },
 
@@ -586,6 +656,180 @@ function handleWarRecommend_(req) {
     bench,
     noHistory: includeNoHistory ? [] : noHistory
   });
+}
+
+
+function buildRecentRecommendContext_(type, windowSize, halfLife) {
+  let history = [];
+  let warMembers = [];
+
+  try {
+    history = readAllSheetObjects_("WarHistory");
+    warMembers = readAllSheetObjects_("WarMembers");
+  } catch (e) {
+    return { wars: [], membersByWar: new Map() };
+  }
+
+  const wars = history
+    .map(w => {
+      const warKey = String(getValCI_(w, "warKey") || "").trim();
+      const warTypeRaw = String(getValCI_(w, "warType") || "CW").trim().toUpperCase();
+      const warType = (warTypeRaw === "CWL") ? "cwl" : "cw";
+      const endValue = getValCI_(w, "endTime") || getValCI_(w, "finalTs") || getValCI_(w, "ts");
+      const endMs = recommendTimeMs_(endValue);
+      return { warKey, warType, endMs };
+    })
+    .filter(w => {
+      if (!w.warKey) return false;
+      if (type === "overall") return true;
+      return w.warType === type;
+    })
+    .sort((a, b) => {
+      if (a.endMs && b.endMs) return b.endMs - a.endMs;
+      if (a.endMs) return -1;
+      if (b.endMs) return 1;
+      return String(b.warKey).localeCompare(String(a.warKey));
+    })
+    .slice(0, windowSize)
+    .map((w, index) => ({
+      ...w,
+      recencyIndex: index,
+      weight: Math.pow(0.5, index / Math.max(1, halfLife))
+    }));
+
+  const warKeys = new Set(wars.map(w => w.warKey));
+  const membersByWar = new Map();
+
+  warMembers.forEach(r => {
+    const warKey = String(getValCI_(r, "warKey") || "").trim();
+    if (!warKeys.has(warKey)) return;
+
+    const rawType = String(getValCI_(r, "warType") || "CW").trim().toUpperCase();
+    const rowType = (rawType === "CWL") ? "cwl" : "cw";
+    if (type !== "overall" && rowType !== type) return;
+
+    const tag = String(getValCI_(r, "playerTag") || "").trim().toUpperCase();
+    if (!tag) return;
+
+    if (!membersByWar.has(warKey)) membersByWar.set(warKey, new Map());
+    membersByWar.get(warKey).set(tag, {
+      attacksDone: Math.max(0, toNum0_(getValCI_(r, "attacksDone"))),
+      attacksRequired: Math.max(0, toNum0_(getValCI_(r, "attacksRequired")))
+    });
+  });
+
+  return { wars, membersByWar };
+}
+
+function computeRecentRecommendMetrics_(tag, memberInfo, context, lifetimeScore, priorAttacks) {
+  const wars = context && Array.isArray(context.wars) ? context.wars : [];
+  if (!wars.length) {
+    return {
+      performance: lifetimeScore,
+      activity: lifetimeScore,
+      warsJoined: 0,
+      eligibleWars: 0,
+      attacksDone: 0,
+      attacksRequired: 0,
+      delta: 0,
+      trend: "no_recent_wars"
+    };
+  }
+
+  const firstSeenMs = recommendTimeMs_(memberInfo && memberInfo.firstSeen);
+  let eligibleWeight = 0;
+  let joinedWeight = 0;
+  let weightedDone = 0;
+  let weightedRequired = 0;
+  let warsJoined = 0;
+  let eligibleWars = 0;
+  let attacksDone = 0;
+  let attacksRequired = 0;
+
+  wars.forEach(w => {
+    // Do not penalize a member for wars that ended before they joined the clan.
+    if (firstSeenMs && w.endMs && w.endMs < firstSeenMs) return;
+
+    eligibleWars += 1;
+    eligibleWeight += w.weight;
+
+    const memberRows = context.membersByWar.get(w.warKey);
+    const row = memberRows ? memberRows.get(tag) : null;
+    if (!row) return;
+
+    warsJoined += 1;
+    joinedWeight += w.weight;
+    attacksDone += row.attacksDone;
+    attacksRequired += row.attacksRequired;
+    weightedDone += w.weight * row.attacksDone;
+    weightedRequired += w.weight * row.attacksRequired;
+  });
+
+  // If there are no eligible wars after firstSeen, recency is neutral and the
+  // recommendation falls back to the lifetime baseline.
+  if (eligibleWeight <= 0) {
+    return {
+      performance: lifetimeScore,
+      activity: lifetimeScore,
+      warsJoined: 0,
+      eligibleWars: 0,
+      attacksDone: 0,
+      attacksRequired: 0,
+      delta: 0,
+      trend: "new_member"
+    };
+  }
+
+  const activity = clamp01_(joinedWeight / eligibleWeight);
+
+  // No recent roster appearances: activity already applies the penalty. Keep
+  // performance neutral instead of pretending unselected wars were missed attacks.
+  let performance = lifetimeScore;
+  if (weightedRequired > 0) {
+    const prior = Math.max(0, Number(priorAttacks) || 0);
+    performance = clamp01_(
+      (weightedDone + prior * lifetimeScore) /
+      (weightedRequired + prior)
+    );
+  }
+
+  const delta = performance - lifetimeScore;
+  let trend = "stable";
+  if (eligibleWars >= 3 && activity < 0.35) {
+    trend = "inactive";
+  } else if (delta <= -0.12) {
+    trend = "declining";
+  } else if (delta >= 0.12) {
+    trend = "improving";
+  }
+
+  return {
+    performance,
+    activity,
+    warsJoined,
+    eligibleWars,
+    attacksDone,
+    attacksRequired,
+    delta,
+    trend
+  };
+}
+
+function recommendTimeMs_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) return value.getTime();
+  if (typeof value === "number" && isFinite(value)) {
+    // Google Sheets serial date.
+    if (value > 30000 && value < 80000) {
+      return Date.UTC(1899, 11, 30) + Math.round(value * 86400000);
+    }
+    if (value > 100000000000) return value;
+    if (value > 1000000000) return value * 1000;
+  }
+
+  const s = String(value || "").trim();
+  if (!s) return 0;
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? ms : 0;
 }
 
 
