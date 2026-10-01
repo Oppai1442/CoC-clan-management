@@ -895,12 +895,10 @@ function requireManagementSession_(authTag, token) {
   const members = readAllSheetObjects_("MembersCurrent");
   const member = members.find(m =>
     String(getValCI_(m, "playerTag") || "").trim().toUpperCase() === tag &&
-    String(getValCI_(m, "status") || "IN").trim().toUpperCase() === "IN"
+    String(getValCI_(m, "status") || "IN").trim().toUpperCase() === "IN" &&
+    String(getValCI_(m, "token") || "").trim() === sessionToken
   );
-  if (!member) throw new Error("Auth member not found");
-
-  const storedToken = String(getValCI_(member, "token") || "").trim();
-  if (!storedToken || storedToken !== sessionToken) throw new Error("Invalid session");
+  if (!member) throw new Error("Invalid session or auth member not found");
 
   const role = String(getValCI_(member, "role") || "").trim().toLowerCase();
   if (role !== "leader" && role !== "coleader") {
