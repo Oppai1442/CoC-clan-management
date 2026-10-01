@@ -1,3 +1,5 @@
+const OCM_API_BUILD_ = "2026-10-01-cw2-r1";
+
 /****************
  * Author: Oppai1442
  * Oppai REST-ish Web API for Google Shee
@@ -375,6 +377,8 @@ function handleWarStatsCurrent_(req) {
     ok: true,
     ts: new Date().toISOString(),
     resource: "war-stats-current",
+    backendVersion: OCM_API_BUILD_,
+    statsRule: { cwRequiredAttacksPerWar: 2 },
     total: rows.length,
     rows
   });
@@ -636,6 +640,8 @@ function handleWarRecommend_(req) {
     ok: true,
     ts: new Date().toISOString(),
     resource: "war-recommend",
+    backendVersion: OCM_API_BUILD_,
+    statsRule: { cwRequiredAttacksPerWar: 2 },
     type,
     sizeRequested: size,
     params: {
