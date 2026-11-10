@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { useSheetExplorer } from "../hooks/useSheetExplorer";
 import { useAuth } from "../hooks/useAuth";
 import { LoginModal } from "./LoginModal";
@@ -46,6 +46,40 @@ import {
 import clsx from "clsx";
 import { useTranslation } from "react-i18next";
 import { format, isValid } from "date-fns";
+
+/** Linkify HTTP(S) addresses in announcement text while keeping all other text escaped by React. */
+function renderAnnouncementContent(content: unknown): ReactNode[] {
+  const text = String(content ?? "");
+  const urls = /https?:\/\/[^\s<>"'`]+/gi;
+  const result: ReactNode[] = [];
+  let offset = 0;
+
+  for (const match of text.matchAll(urls)) {
+    const start = match.index;
+    const raw = match[0];
+    if (start > offset) result.push(text.slice(offset, start));
+
+    // Sentence-ending punctuation is not part of the link. Preserve it as text.
+    const suffix = raw.match(/[.,!?;:]+$/)?.[0] ?? "";
+    const url = raw.slice(0, raw.length - suffix.length);
+    result.push(
+      <a
+        key={`announcement-link-${start}`}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-orange-700 hover:text-orange-900 underline underline-offset-2 break-all"
+      >
+        {url}
+      </a>
+    );
+    if (suffix) result.push(suffix);
+    offset = start + raw.length;
+  }
+
+  if (offset < text.length) result.push(text.slice(offset));
+  return result;
+}
 
 type Props = {
   baseUrl: string;
@@ -1457,7 +1491,7 @@ export function SheetExplorer({ baseUrl, pollMs = 15000 }: Props) {
                           </header>
                           
                           <div className="text-xs lg:text-sm text-[#3a2e20] leading-relaxed whitespace-pre-wrap font-medium break-words select-text">
-                            {r.content}
+                            {renderAnnouncementContent(r.content)}
                           </div>
 
                           {imageUrlList.length > 0 && (
